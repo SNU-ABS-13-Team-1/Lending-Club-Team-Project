@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+~$*.xlsx
+.claude/settings.local.json
+
+# 100MB 제한 초과 — git에 올리지 않음
+data/raw/lending_club_2020_train.csv
