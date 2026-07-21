@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **⚠️ 아키텍처 변경 안내 (2026-07-21):** 이 문서는 `분석 에이전트`가 별도 작업 루트였던 옛 구조 기준으로 작성됐습니다. 그 폴더는 이후 삭제되었고, `Team Project` 루트 자체가 `data/raw`, `data/processed`, `src/{preprocessing,analysis,viz,utils}`, `notebooks`, `outputs`, `docs` 파이프라인 구조로 재편되었습니다. 아래 "절대 규칙"·"방법론"·"Sharpe Ratio 정의" 등은 여전히 유효한 팀 합의 사항이라 참고용으로 보존하지만, "아키텍처" 섹션의 경로 정보는 옛 구조 기준이라 최신화가 필요합니다 (아래 갱신 표 참조).
+
 ## 절대 규칙
 
 - 승인/거절 **threshold는 오직 Sharpe Ratio 극대화**로 결정한다. accuracy, AUC 등 일반 분류 지표로 정하지 않는다.
@@ -9,25 +11,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Sharpe Ratio 표준편차는 **표본표준편차(ddof=1)**를 사용한다.
 - **Test set으로는 모형을 재조정하지 않는다.** Train(60%)으로 확정한 모형과 Validation으로 확정한 threshold를 그대로 적용해 검증만 한다.
 - **사전/사후(pre/post-approval) 변수 구분은 아직 미확정이다.** 현재 시점에는 이 구분을 모델링에 적용하지 말고, 팀에서 별도로 확정한 뒤 반영한다.
-- `../Team Project/변수 데이터/v_desc_unified.xlsx`의 라벨 값을 **현재 상태 그대로 신뢰하지 않는다** (수정이 필요한 초안 상태).
+- `data/processed/v_desc_unified.xlsx`(구 경로: `../Team Project/변수 데이터/v_desc_unified.xlsx`)의 라벨 값을 **현재 상태 그대로 신뢰하지 않는다** (수정이 필요한 초안 상태).
 - `int_rate`는 실현수익률 계산(목표/평가용)에는 사용하되, 사후 확정 변수이므로 **부도확률 예측 피처로 사용하지 않는다.**
 - 원본 데이터(`lending_club_2020_train.csv`, ~1.2GB)를 이 폴더로 이관하더라도 **git 추적/커밋 대상에서 제외한다.**
 
-## 아키텍처
+## 아키텍처 (레거시 — 현재는 아래 새 구조로 대체됨)
 
-이 폴더(`분석 에이전트`)는 프로젝트의 새 작업 루트다. 현재는 방법론과 참고 자료만 정리되어 있고,
-실제 원본 데이터/사전 작업물은 아직 형제 폴더 `../Team Project`에 있다. 작업 시작 전 필요한 데이터를
-이 폴더로 이관해야 한다.
+~~이 폴더(`분석 에이전트`)는 프로젝트의 새 작업 루트다.~~ 이 서술은 더 이상 유효하지 않다.
+`분석 에이전트` 폴더는 삭제되었고, `Team Project` 저장소 루트 자체가 데이터 파이프라인 구조
+(`data/raw` → `src/preprocessing` → `data/processed` → `src/analysis` → `src/viz` → `outputs`)로
+재편되었다. 아래 표는 옛 경로가 새 구조에서 어디로 이동했는지 정리한 것이다.
 
-### 데이터 위치 (현재 외부, 이관 필요)
+### 데이터 위치 (현재 구조 기준 갱신)
 
-| 파일 | 위치 | 설명 |
+| 파일 | 현재 위치 | 설명 |
 |---|---|---|
-| 실제 원본 데이터 (175만 행, 150+ 컬럼) | `../Team Project/lending_club_2020_train.csv` | Lending Club 2020 원본. 용량 큼(~1.2GB) — 이관 시 git 추적/커밋 대상에서 제외할 것. |
-| 변수 사전/사후 라벨 (초안, 수정 필요) | `../Team Project/변수 데이터/v_desc_unified.xlsx` | 3개 AI 라벨 다수결 초안. 아직 확정 아님 — 수정 후 재확정 예정. |
-| LC 공식 데이터 사전 | `../Team Project/변수 데이터/LCDataDictionary.xlsx` | 각 컬럼의 공식 정의. |
-| 초기 탐색 노트북 | `../Team Project/analysis_in_advance.ipynb` | `funded_amnt` vs `funded_amnt_inv` 등 초기 EDA. |
-| **방법론 참고(연습용) 노트북** | `LendingClub_실습_v2.ipynb` (이 폴더) | 단순화된 샘플 데이터(1만 행, 11컬럼)로 전체 파이프라인(분할→모형→threshold→Sharpe 검증→30-seed 안정성 체크)을 시연. 실제 프로젝트 파이프라인의 구조적 템플릿으로 사용할 것 — 단, leakage 방지 기준은 위 절대 규칙으로 대체 적용. |
+| 실제 원본 데이터 (175만 행, 150+ 컬럼) | `data/raw/lending_club_2020_train.csv` | Lending Club 2020 원본. 용량 큼(~1.2GB) — `.gitignore`로 git 추적/커밋 대상에서 제외됨. |
+| 변수 사전/사후 라벨 (초안, 수정 필요) | `data/processed/v_desc_unified.xlsx` | 3개 AI 라벨 다수결 초안. 아직 확정 아님 — 수정 후 재확정 예정. |
+| LC 공식 데이터 사전 | `data/raw/LCDataDictionary.xlsx` | 각 컬럼의 공식 정의. |
+| 초기 탐색 노트북 | `notebooks/analysis_in_advance.ipynb` | `funded_amnt` vs `funded_amnt_inv` 등 초기 EDA. |
+| **방법론 참고(연습용) 노트북** | `notebooks/LendingClub_실습_v2.ipynb` | 단순화된 샘플 데이터(1만 행, 11컬럼)로 전체 파이프라인(분할→모형→threshold→Sharpe 검증→30-seed 안정성 체크)을 시연. 실제 프로젝트 파이프라인의 구조적 템플릿으로 사용할 것 — 단, leakage 방지 기준은 위 절대 규칙으로 대체 적용. |
+| 변수 사전 빌드 스크립트 | `src/preprocessing/build_v_desc_check.py`, `src/preprocessing/build_v_desc_unified.py` | `v_desc_unified.xlsx` 생성/검증 로직. |
 
 ### 기술 스택
 
