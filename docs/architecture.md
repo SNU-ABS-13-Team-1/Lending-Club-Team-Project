@@ -5,17 +5,17 @@
 ```mermaid
 graph LR
     subgraph RAW["data/raw (원본, 수정 금지)"]
-        A1["lending_club_2020_train.csv<br/>(~1.2GB, git 미추적)"]
-        A2["LCDataDictionary.xlsx"]
+        A1["원본 대출 데이터 CSV<br/>(git 미추적)"]
+        A2["공식 데이터 사전(Data Dictionary)"]
     end
 
     subgraph PRE["src/preprocessing"]
-        B1["build_v_desc_check.py"]
-        B2["build_v_desc_unified.py"]
+        B1["변수 사전 검증 스크립트"]
+        B2["변수 사전 통합 스크립트"]
     end
 
     subgraph PROC["data/processed"]
-        C1["v_desc_unified.xlsx 등<br/>(변수 사전, pre/post 라벨 초안)"]
+        C1["변수 사전/라벨 산출물<br/>(pre/post 라벨 초안)"]
     end
 
     subgraph AN["src/analysis"]
