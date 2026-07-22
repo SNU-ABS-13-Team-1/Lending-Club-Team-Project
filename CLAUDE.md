@@ -16,7 +16,7 @@
 
 ## 공통 원칙
 - `data/raw/`는 절대 수정하지 않는다.
-- 원본 대용량 CSV(`data/raw/lending_club_2020_train.csv`, ~1.2GB)는 git에 커밋하지 않는다 (`.gitignore` 참고). 팀원 공유는 별도 채널(Google Drive 등)로 한다.
+- 원본 대용량 CSV(`data/raw/` 내 대출 원본 데이터, ~1.2GB)는 git에 커밋하지 않는다 (`.gitignore` 참고). 팀원 공유는 별도 채널(Google Drive 등)로 한다.
 - 승인/거절 판단 기준은 **Sharpe Ratio 극대화**이며, accuracy·AUC 등 일반 분류 지표로 대체하지 않는다.
 - Test set으로 모형을 재조정하지 않는다 — Train/Validation으로 확정한 모형·threshold를 그대로 적용해 검증만 한다.
 - 무거운 처리는 스크립트로 작성 후 결과만 요약해서 보고한다.
