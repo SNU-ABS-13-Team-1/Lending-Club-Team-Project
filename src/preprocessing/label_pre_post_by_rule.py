@@ -1,5 +1,5 @@
 """
-v_desc.xlsx('LoanStats' 시트)에 is_pre_approval 라벨을 추가해 v_desc_check.xlsx로 저장.
+variable_dictionary.xlsx('LoanStats' 시트)에 is_pre_approval 라벨을 추가해 variable_labels_rule_based.xlsx로 저장.
 
 라벨링 기준 (LendingClub 신용평가 모형에서 흔히 쓰이는 leakage 방지 기준):
 - 0 (사후): 대출 실행 후 시간이 지나야(상환/연체가 진행돼야) 값이 생기는 변수.
@@ -11,8 +11,8 @@ v_desc.xlsx('LoanStats' 시트)에 is_pre_approval 라벨을 추가해 v_desc_ch
 """
 import pandas as pd
 
-SRC = "v_desc.xlsx"
-DST = "v_desc_check.xlsx"
+SRC = "variable_dictionary.xlsx"
+DST = "variable_labels_rule_based.xlsx"
 SHEET = "LoanStats"
 
 # 대출 실행 후 시간이 지나야 발생·확정되는 변수(사후, 0)
@@ -41,7 +41,7 @@ df = pd.read_excel(SRC, sheet_name=SHEET)
 
 unknown = POST_APPROVAL_VARS - set(df["LoanStatNew"])
 if unknown:
-    raise ValueError(f"v_desc.xlsx에 없는 변수명이 POST_APPROVAL_VARS에 있습니다: {unknown}")
+    raise ValueError(f"variable_dictionary.xlsx에 없는 변수명이 POST_APPROVAL_VARS에 있습니다: {unknown}")
 
 df["is_pre_approval"] = df["LoanStatNew"].apply(
     lambda x: 0 if x in POST_APPROVAL_VARS else 1

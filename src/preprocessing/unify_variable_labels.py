@@ -1,6 +1,6 @@
 """
 세 AI(gemini, vscode, claude)가 각각 매긴 사전/사후(is_pre_approval) 라벨을 비교해
-v_desc_unified.xlsx를 생성한다.
+variable_labels_unified.xlsx를 생성한다.
 
 규칙:
 1. 세 파일 모두 값이 같은(0,0,0 또는 1,1,1) 변수는 그 값을 그대로 확정한다.
@@ -8,16 +8,16 @@ v_desc_unified.xlsx를 생성한다.
 """
 import pandas as pd
 
-BASE = "v_desc.xlsx"
-OUT = "v_desc_unified.xlsx"
+BASE = "variable_dictionary.xlsx"
+OUT = "variable_labels_unified.xlsx"
 
 base = pd.read_excel(BASE, sheet_name="LoanStats")
 
-gemini = pd.read_excel("v_desc_check_gemini.xlsx")[["LoanStatNew", "is_pre_approval"]] \
+gemini = pd.read_excel("variable_labels_gemini.xlsx")[["LoanStatNew", "is_pre_approval"]] \
     .rename(columns={"is_pre_approval": "gemini_label"})
-vscode = pd.read_excel("v_desc_check_vscode.xlsx")[["LoanStatNew", "is_pre_approval"]] \
+vscode = pd.read_excel("variable_labels_vscode.xlsx")[["LoanStatNew", "is_pre_approval"]] \
     .rename(columns={"is_pre_approval": "vscode_label"})
-claude = pd.read_excel("v_desc_claude.xlsx", sheet_name="LoanStats")[["LoanStatNew", "사전_사후_라벨"]] \
+claude = pd.read_excel("variable_labels_claude.xlsx", sheet_name="LoanStats")[["LoanStatNew", "사전_사후_라벨"]] \
     .rename(columns={"사전_사후_라벨": "claude_label"})
 
 merged = base.merge(gemini, on="LoanStatNew", how="left") \
