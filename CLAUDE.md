@@ -11,6 +11,7 @@
 - 전처리 규칙: `src/preprocessing/CLAUDE.md`
 - 분석 규칙: `src/analysis/CLAUDE.md`
 - 시각화 규칙: `src/viz/CLAUDE.md`
+- 아키텍처 개요(Mermaid): @docs/architecture.md
 - 과거 방법론/절대 규칙 원문(참고용): `docs/references/legacy-분석에이전트-CLAUDE.md`
 
 ## 공통 원칙
