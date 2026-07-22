@@ -10,12 +10,19 @@ graph LR
     end
 
     subgraph PRE["src/preprocessing"]
+        P1["행 필터링<br/>(Current/Late 제외,<br/>정책미달 라벨 재분류)"]
+        P2["결측치 처리<br/>(더미변수화)"]
+        P3["범주형 변수 더미화"]
+        P4["비율 파생변수 생성<br/>(단위 표준화)"]
+        P5["컬럼명 표준화"]
+        P6["타겟(종속변수) 라벨링<br/>(정의 미확정)"]
         B1["변수 사전 검증 스크립트"]
         B2["변수 사전 통합 스크립트"]
     end
 
     subgraph PROC["data/processed"]
         C1["변수 사전/라벨 산출물<br/>(pre/post 라벨 초안)"]
+        C2["모델링용 처리 데이터"]
     end
 
     subgraph AN["src/analysis"]
@@ -33,16 +40,23 @@ graph LR
         F2["figures/"]
     end
 
-    A1 --> B1
-    A1 --> B2
+    A1 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> C2
     A2 --> B1
     A2 --> B2
     B1 --> C1
     B2 --> C1
-    C1 --> D1 --> D2 --> D3
+    C1 --> D1
+    C2 --> D1
+    D1 --> D2 --> D3
     D3 --> E1 --> F2
     D3 --> F1
+
+    classDef planned stroke-dasharray: 4 3;
+    class P2,P3,P4,P5,P6,C2 planned;
 ```
+
+> 실선 노드 = 이미 구현/확정된 단계, 점선 노드 = 아직 팀에서 확정하지 않은 계획 단계.
+> `P2`~`P6`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/CLAUDE.md` 참고).
 
 ## 2. 승인/거절 의사결정 로직 (Sharpe Ratio 최적화)
 
@@ -68,3 +82,9 @@ graph TD
 ```
 
 > Test set은 위 피드백 루프(threshold 재탐색)에 참여하지 않는다 — 확정된 모형·threshold를 그대로 적용해 검증만 한다.
+
+## 참고
+
+이 다이어그램은 단순화된 개요이며, 아래 세부 방법론은 의도적으로 생략했다 — 최신 내용은 각 문서를 참고:
+- Threshold 확정 후 Train 전체 재학습, 안정성 검증(30-seed 반복), "전부 승인" 베이스라인 비교: `src/analysis/CLAUDE.md`
+- 개별 대출 IRR 심화 계산, 대출 간 독립성 문제, 수익률 분포 히스토그램, 사전적·사후적 Sharpe Ratio 구분: `README.md`
