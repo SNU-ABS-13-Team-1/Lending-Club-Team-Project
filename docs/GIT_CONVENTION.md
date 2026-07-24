@@ -7,6 +7,9 @@
 - `docs/#이슈번호-문서명-이니셜`: 문서 작성/수정
 - `refactor/#이슈번호-리팩토링명-이니셜`: 코드 구조 개선 (기능 변경 없음)
 - 개인 브랜치는 본인이 자유롭게 push 가능 (커밋 단위·횟수 제약 없음). `main`만 보호 대상이다.
+- **새 feature 브랜치를 만들기 전에는 반드시 `main`을 최신으로 pull 받는다**
+  (`git checkout main && git pull origin main` 후 새 브랜치 생성). 오래된 `main` 기준으로
+  작업하면 나중에 PR에서 충돌이 발생하거나, 이미 반영된 남의 작업을 놓칠 수 있다.
 
 ## 2. 커밋 메시지 규칙
 형식: `Type: Description (#IssueNumber)`
@@ -25,11 +28,14 @@
 
 ## 3. PR & 리뷰 프로세스
 1. 작업 시작 전 GitHub Issue를 등록한다 (담당 파트·목표 명시).
-2. 이슈 번호 기반으로 개인 브랜치를 만들어 자유롭게 커밋·push한다.
-3. 작업이 끝나면 PR을 생성한다 — 본문에 변경 요약과 `Closes #이슈번호`를 명시하고, 리뷰어로 **권재**를 지정한다.
-4. **PR 리뷰·승인·merge는 권재가 담당한다.** 수정 요청이 있으면 같은 PR에 커밋을 추가해 반영한다 (새 PR을 다시 만들 필요 없음).
-5. 승인 후 권재가 **Squash and Merge**로 `main`에 반영하고, 이슈가 자동 종결됐는지 확인한다.
-6. merge된 개인 브랜치는 정리(삭제)한다.
+2. `main`을 pull 받아 최신 상태로 맞춘 뒤, 이슈 번호 기반으로 개인 브랜치를 만들어 자유롭게 커밋·push한다.
+3. PR을 올리기 전, 본인 브랜치에서 최신 `main`을 받아 미리 병합해 충돌을 로컬에서
+   해결한다 (`git fetch origin && git merge origin/main`, 또는 팀 합의 시 rebase).
+   충돌은 PR을 올린 뒤가 아니라 올리기 전에 해소하는 것이 원칙이다.
+4. 작업이 끝나면 PR을 생성한다 — 본문에 변경 요약과 `Closes #이슈번호`를 명시하고, 리뷰어로 **권재**를 지정한다.
+5. **PR 리뷰·승인·merge는 권재가 담당한다.** 수정 요청이 있으면 같은 PR에 커밋을 추가해 반영한다 (새 PR을 다시 만들 필요 없음).
+6. 승인 후 권재가 **Squash and Merge**로 `main`에 반영하고, 이슈가 자동 종결됐는지 확인한다.
+7. merge된 개인 브랜치는 정리(삭제)한다.
 
 > 리뷰 대기 기준: PR 등록 후 원칙적으로 1일 이내 확인을 목표로 한다. 권재가 바로 확인하기 어려운 경우 팀 채팅방에 미리 공지한다.
 
@@ -44,3 +50,15 @@ GitHub의 Branch protection rule/Ruleset 기능(`main`에 직접 push 금지, �
 - **Require approvals**: 1건.
 - **Restrict who can push to matching branches** (Ruleset에서는 `Restrict updates` + Bypass list에 권재 추가): 이 옵션이 있어야 승인 후에도 권재만 merge 버튼을 누를 수 있다 — 없으면 다른 팀원도 승인 후 merge할 수 있어 "권재만 merge" 규칙이 강제되지 않는다.
 - 이 규칙은 `main`에만 적용한다 — 개인 feature 브랜치는 보호 대상이 아니므로 위 1번 규칙대로 자유롭게 push 가능하다.
+
+## 5. Pull 관련 주의사항
+
+- **PR이 승인·merge되어도 다른 팀원의 로컬 저장소에 자동으로 반영되지 않는다.**
+  GitHub은 원격 저장소(`main`)만 갱신할 뿐, 각자의 로컬 컴퓨터까지 push해주지 않는다.
+  merge 소식을 팀 채팅방에 공지하고, 각자 다음 작업 시작 전 `git pull origin main`을
+  직접 실행해야 한다.
+- `main`에 직접 push하는 것은 원칙적으로 금지되지만, 이 저장소는 branch protection이
+  기술적으로 걸려 있지 않다(4번 참고). 다만 Git 자체의 기본 동작으로, 원격 `main`이
+  로컬보다 앞서 있는 상태(즉 pull을 받지 않은 상태)에서 push하면 Git이
+  **non-fast-forward 에러로 자동 거부**한다. 이때 절대 `git push --force`로 덮어쓰지
+  말고, 반드시 `git pull`로 먼저 받아 병합한 뒤 다시 push한다.
