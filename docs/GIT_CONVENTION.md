@@ -33,11 +33,14 @@
 
 > 리뷰 대기 기준: PR 등록 후 원칙적으로 1일 이내 확인을 목표로 한다. 권재가 바로 확인하기 어려운 경우 팀 채팅방에 미리 공지한다.
 
-## 4. Branch Protection Rule (GitHub 저장소 설정)
-저장소 **Settings → Branches**에서 `main`에 대해 아래를 설정한다 (Owner/Admin 권한 필요 — 문서화만으로는 강제되지 않는다):
+> **이 규칙은 GitHub 설정으로 강제되지 않고 팀 합의로 지켜진다.** (아래 4번 참고 — private 저장소 + 무료 플랜이라 GitHub의 branch protection/ruleset 기능 자체가 적용되지 않는다.) `main`에 직접 push하지 않는 것, PR로만 반영하는 것, 권재만 merge하는 것 모두 GitHub이 막아주는 게 아니라 팀원 각자가 지켜야 하는 부분이다.
+
+## 4. Branch Protection — 기술적 강제는 현재 불가 (문서 규칙으로 대체)
+GitHub의 Branch protection rule/Ruleset 기능(`main`에 직접 push 금지, 특정 인원만 merge 허용 등)은 **private 저장소 + 무료 플랜에서는 적용되지 않는다** (public 저장소이거나 GitHub Pro/Team 이상 유료 플랜이어야 실제로 강제됨). 이 저장소는 private + 무료 플랜이므로 Settings에서 rule을 만들어도 실제로 동작하지 않는다.
+
+따라서 위 3번 프로세스(개인 브랜치 push → PR → 권재 리뷰/승인/merge)는 **기술적 강제가 아니라 팀 합의 규칙**이다. 나중에 저장소를 public으로 전환하거나 GitHub Pro로 업그레이드하면 아래 설정으로 기술적 강제를 켤 수 있다 (참고용, 현재는 적용 안 됨):
 
 - **Require a pull request before merging**: 체크 — 직접 push 차단.
 - **Require approvals**: 1건.
-- **Restrict who can push to matching branches**: 체크, 허용 대상에 **권재만** 추가.
-  - GitHub은 PR merge도 내부적으로 `main`에 대한 push로 처리한다. 이 옵션이 없으면 다른 팀원도 승인 후 merge 버튼을 누를 수 있어 "PR은 권재만 merge한다"는 규칙이 실제로 강제되지 않는다.
-- 이 규칙은 `main`에만 적용된다 — 개인 feature 브랜치는 보호 대상이 아니므로 위 1번 규칙대로 자유롭게 push 가능하다.
+- **Restrict who can push to matching branches** (Ruleset에서는 `Restrict updates` + Bypass list에 권재 추가): 이 옵션이 있어야 승인 후에도 권재만 merge 버튼을 누를 수 있다 — 없으면 다른 팀원도 승인 후 merge할 수 있어 "권재만 merge" 규칙이 강제되지 않는다.
+- 이 규칙은 `main`에만 적용한다 — 개인 feature 브랜치는 보호 대상이 아니므로 위 1번 규칙대로 자유롭게 push 가능하다.
