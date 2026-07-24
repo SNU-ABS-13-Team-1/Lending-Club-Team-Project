@@ -1,0 +1,26 @@
+# 프로젝트 공통 설정
+# 팀에서 아직 확정하지 않은 항목은 값을 임의로 채우지 말고 TODO로 남겨둔다 (AGENTS.md 참고).
+# 경로는 저장소 루트 기준 상대경로만 쓴다 — 팀원마다 클론 위치가 다르므로 절대경로 금지.
+
+paths:
+  data_raw: data/raw
+  data_processed: data/processed
+  outputs_reports: outputs/reports
+  outputs_figures: outputs/figures
+
+split:
+  train: 0.6
+  validation: 0.2
+  test: 0.2
+
+risk_free_rate:
+  # TODO: 팀 확정 필요 — 고정값(예: 0.05) vs 대출 발행 시점 기준 실제 국채수익률 중 선택.
+  # (src/analysis/AGENTS.md, README.md "Sharpe Ratio 계산 방법론" 참고)
+  # 확정 전까지는 null로 둔다 — 임의로 기본값을 채워서 쓰지 않는다.
+  value: null
+
+random_seed:
+  # 기본 실행/디버깅용 단일 seed. src/analysis/AGENTS.md의 "30-seed 안정성 검증"(0~29 반복)과는
+  # 목적이 다른 별개 설정이므로 혼동하지 않는다.
+  default: 42
+  stability_check_range: [0, 29]

@@ -56,7 +56,7 @@ graph LR
 ```
 
 > 실선 노드 = 이미 구현/확정된 단계, 점선 노드 = 아직 팀에서 확정하지 않은 계획 단계.
-> `P2`~`P6`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/CLAUDE.md` 참고).
+> `P2`~`P6`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/AGENTS.md` 참고).
 
 ## 2. 승인/거절 의사결정 로직 (Sharpe Ratio 최적화)
 
@@ -86,5 +86,5 @@ graph TD
 ## 참고
 
 이 다이어그램은 단순화된 개요이며, 아래 세부 방법론은 의도적으로 생략했다 — 최신 내용은 각 문서를 참고:
-- Threshold 확정 후 Train 전체 재학습, 안정성 검증(30-seed 반복), "전부 승인" 베이스라인 비교: `src/analysis/CLAUDE.md`
+- Threshold 확정 후 Train 전체 재학습, 안정성 검증(30-seed 반복), "전부 승인" 베이스라인 비교: `src/analysis/AGENTS.md`
 - 개별 대출 IRR 심화 계산, 대출 간 독립성 문제, 수익률 분포 히스토그램, 사전적·사후적 Sharpe Ratio 구분: `README.md`

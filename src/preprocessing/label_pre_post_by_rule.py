@@ -7,7 +7,7 @@ variable_dictionary.xlsx('LoanStats' 시트)에 is_pre_approval 라벨을 추가
 - 1 (사전): 대출 신청 시점(및 그 이전 신용이력 조회 결과)에 이미 알 수 있는 변수.
   grade/sub_grade/int_rate/installment/funded_amnt/funded_amnt_inv/issue_d/initial_list_status는
   대출 발행(origination) 시점에 함께 확정되며, 신규 심사 대상 데이터에도 이미 채워져 들어오므로
-  사전 변수로 간주한다 (근거: `src/preprocessing/CLAUDE.md` 참고).
+  사전 변수로 간주한다 (근거: `src/preprocessing/AGENTS.md` 참고).
 """
 import pandas as pd
 
