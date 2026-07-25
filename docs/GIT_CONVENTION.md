@@ -6,6 +6,8 @@
 - `fix/#이슈번호-버그명-이니셜`: 버그 수정 (예: `fix/#45-sharpe-bug-jm`)
 - `docs/#이슈번호-문서명-이니셜`: 문서 작성/수정
 - `refactor/#이슈번호-리팩토링명-이니셜`: 코드 구조 개선 (기능 변경 없음)
+- `experiment/#이슈번호-실험명-이니셜`: 같은 이슈에 대해 서로 다른 접근법(모델, threshold, 피처셋 등)을
+  비교할 때 쓰는 후보 브랜치. 사용법은 6번 참고.
 - 개인 브랜치는 본인이 자유롭게 push 가능 (커밋 단위·횟수 제약 없음). `main`만 보호 대상이다.
 - **새 feature 브랜치를 만들기 전에는 반드시 `main`을 최신으로 pull 받는다**
   (`git checkout main && git pull origin main` 후 새 브랜치 생성). 오래된 `main` 기준으로
@@ -62,3 +64,29 @@ GitHub의 Branch protection rule/Ruleset 기능(`main`에 직접 push 금지, �
   로컬보다 앞서 있는 상태(즉 pull을 받지 않은 상태)에서 push하면 Git이
   **non-fast-forward 에러로 자동 거부**한다. 이때 절대 `git push --force`로 덮어쓰지
   말고, 반드시 `git pull`로 먼저 받아 병합한 뒤 다시 push한다.
+
+## 6. 실험 브랜치 비교 & Merge 전략
+
+지금까지처럼 `main` 위에 커밋을 계속 이어붙이면 여러 접근법을 동시에 갖고 비교할 수 없다.
+같은 이슈에 대해 서로 다른 접근법(예: 다른 threshold, 다른 모델, 다른 피처셋)을 시도해보고
+**가장 결과가 좋은 것 하나만 `main`에 반영**하고 싶을 때는 아래 절차를 따른다.
+
+1. `main`을 최신으로 pull한 뒤, **같은 지점에서** 후보 브랜치를 여러 개 분기한다.
+   ```bash
+   git checkout main && git pull origin main
+   git checkout -b experiment/#12-threshold-optA-gwj
+   # 커밋...
+   git checkout main
+   git checkout -b experiment/#12-threshold-optB-gwj
+   ```
+2. 여러 브랜치를 동시에 켜두고 비교하고 싶으면 `git worktree`로 폴더를 분리해서 각 브랜치를
+   독립적으로 체크아웃할 수 있다.
+   ```bash
+   git worktree add ../team-project-optA experiment/#12-threshold-optA-gwj
+   git worktree add ../team-project-optB experiment/#12-threshold-optB-gwj
+   ```
+3. 각 브랜치는 PR로 올리되, PR 본문에 Sharpe Ratio 등 핵심 지표를 비교 표로 남긴다.
+   `outputs/reports/decision_log.md`에도 동일한 비교 내용을 기록해 근거를 남긴다.
+4. 지표를 비교해 가장 나은 브랜치 하나만 권재가 승인·**Squash and Merge**한다 (3번 프로세스와 동일).
+5. 나머지 브랜치의 PR은 merge하지 않고 close하며, 브랜치는 삭제한다 (참고 가치가 있으면 팀 합의
+   하에 남겨둔다).
