@@ -11,17 +11,26 @@
 
 ---
 
-## 1. 작업 분담 (이슈 / 브랜치)
+> **이 문서의 위치**: 아래 2~3절의 **수집 규격은 계속 유효**하다 — 새 외부 데이터를 추가할 때
+> 그대로 따른다. 반면 1절의 작업 분담과 4절의 완료 기준은 **2026-07-26에 4종 수집이 끝나
+> 종료된 작업 기록**이다. 진행 중인 지시로 읽지 말 것.
+> 수집 결과는 `outputs/reports/macro_{지표}.md`, 이후 탐색 분석과 남은 판단은
+> `outputs/reports/macro_indicator_selection.md`에 있다.
 
-| # | 지표 | FRED 시리즈 | 이슈 | 브랜치 |
-| --- | --- | --- | --- | --- |
-| 1 | 실업률 | `UNRATE` | [#1](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/1) | `feature/#1-macro-unemployment-rate-gwj` |
-| 2 | 신규 실업수당청구 | `ICSA` (주간) | [#2](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/2) | `feature/#2-macro-initial-claims-gwj` |
-| 3 | 10y-2y 금리차 | `GS10`, `GS2` | [#3](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/3) | `feature/#3-macro-yield-spread-gwj` |
-| 4 | CPI | `CPIAUCSL` | [#4](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/4) | `feature/#4-macro-cpi-gwj` |
+## 1. 작업 분담 (이슈 / 브랜치) — **완료 (2026-07-26)**
 
-각 세션은 **자기 브랜치에서만** 작업한다. 4개 브랜치는 서로 다른 파일만 건드리므로 merge 충돌이 나지 않는다.
-공통 파일(이 문서, `README.md`, `AGENTS.md` 등)은 수정하지 않는다 — 수정이 필요하면 이슈에 코멘트로 남긴다.
+| # | 지표 | FRED 시리즈 | 이슈 | 브랜치 | 상태 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 실업률 | `UNRATE` | [#1](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/1) | `feature/#1-macro-unemployment-rate-gwj` | 완료·merge |
+| 2 | 신규 실업수당청구 | `ICSA` (주간) | [#2](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/2) | `feature/#2-macro-initial-claims-gwj` | 완료·merge |
+| 3 | 10y-2y 금리차 | `GS10`, `GS2` | [#3](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/3) | `feature/#3-macro-yield-spread-gwj` | 완료·merge |
+| 4 | CPI | `CPIAUCSL` | [#4](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/4) | `feature/#4-macro-cpi-gwj` | 완료·merge |
+
+당시 규칙: 각 세션은 **자기 브랜치에서만** 작업하고, 4개 브랜치가 서로 다른 파일만 건드리게 해
+merge 충돌을 피했다. 공통 파일(이 문서, `README.md`, `AGENTS.md` 등)은 수정하지 않고 이슈에
+코멘트로 남기도록 했다 — 실제로 이슈 #3 작업 중 이 문서 2.9절의 오류를 발견해 그 절차를 따랐다.
+
+> 병렬 세션이 끝났으므로 **"공통 파일 수정 금지" 규칙은 더 이상 적용되지 않는다.**
 
 ---
 
@@ -182,7 +191,9 @@ CPI 계절조정계수, 실업률 벤치마크 등은 사후에 개정된다. �
 
 ---
 
-## 4. 완료 기준 (Definition of Done)
+## 4. 완료 기준 (Definition of Done) — 4종 모두 충족 완료
+
+> 2026-07-26 기준 4개 지표 전부 아래를 만족했다. 새 외부 데이터를 추가할 때 재사용할 체크리스트다.
 
 각 세션은 아래를 모두 만족하면 PR을 올린다 (본문에 `Closes #이슈번호`).
 
@@ -193,4 +204,5 @@ CPI 계절조정계수, 실업률 벤치마크 등은 사후에 개정된다. �
 - [ ] `outputs/reports/macro_{지표슬러그}.md` 에 2.8-(2)의 7개 항목 전부 기록
 - [ ] 2.9 값 검증 통과
 - [ ] `observation_date` 형식이 `YYYY-MM-01` 이고, 국채 파일과 join했을 때 날짜가 어긋나지 않음
-- [ ] 이 문서(`docs/macro_indicators_spec.md`)를 포함한 공통 파일을 수정하지 않음
+- [ ] ~~이 문서를 포함한 공통 파일을 수정하지 않음~~ — 병렬 세션 중에만 적용됐던 항목.
+  현재는 해당 없음(1절 참고)
