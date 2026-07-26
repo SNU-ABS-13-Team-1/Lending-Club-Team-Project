@@ -49,12 +49,14 @@
 | --- | --- |
 | `lending_club_2020_train_sample_9000.csv` | 대출 표본 9,000건 (검증·탐색용) |
 | `variable_dictionary_byGJ.xlsx` | 변수 사전 + 사전/사후 라벨 (**단일 원본**) |
-| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) |
+| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
 | `macro_*_monthly_*.csv` | 거시경제지표 (독립변수 후보) |
 | `*.source.md` | **출처 카드** — 짝이 되는 데이터 파일의 출처·체크섬·검증법 |
 
 > 데이터 파일의 출처가 궁금하면 **같은 이름의 `.source.md`를 먼저 본다.**
 > 새 외부 데이터를 추가할 때도 이 카드를 함께 만든다 (`docs/macro_indicators_spec.md` 2.8).
+> 단, 국채수익률 파일은 팀원이 별도로 수집해 출처 추적이 어려워 카드가 없다 — 찾지 말 것.
+> 값의 타당성은 `outputs/reports/macro_yield_spread.md` 7절에서 `GS10`/`GS2`와 교차 검증했다.
 
 ### 코드
 
