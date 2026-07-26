@@ -139,7 +139,23 @@ def main() -> None:
         cells = " | ".join(f"{i} {v * 100:5.2f}% (n={n:,})" for i, (n, v) in r.iterrows())
         print(f"  {col:<14} {cells}")
 
-    section("6. 발행연도별 부도율 (seasoning 편향 있음 — 해석 주의)")
+    section("6. 금리차 -0.870 분해 — '금리가 낮아졌다'는 오독 방지")
+    ys = pd.read_csv(
+        PROCESSED / "macro_yield_spread_10y2y_monthly_2007-01_to_2020-09.csv",
+        parse_dates=["observation_date"],
+    )
+    ys["year"] = ys["observation_date"].dt.year
+    print("연도별 평균(165개월 전체):")
+    print(ys.groupby("year")[["GS10", "GS2", "spread_10y2y"]].mean().round(2).to_string())
+    print("\n대출이 몰린 2013~2019 구간의 연도 상관:")
+    win = ys[ys["year"].between(2013, 2019)]
+    for col in ["GS10", "GS2", "spread_10y2y"]:
+        print(f"  corr({col}, 연도) = {win[[col, 'year']].corr().iloc[0, 1]:+.3f}")
+    print("\n같은 상관을 어디서 재느냐에 따라 값이 달라진다:")
+    print(f"  165개월 전체     corr(spread, 연도) = {ys[['spread_10y2y', 'year']].corr().iloc[0, 1]:+.3f}")
+    print(f"  대출 표본 기준   corr(spread, 연도) = {df[['spread_10y2y', 'year']].corr().iloc[0, 1]:+.3f}")
+
+    section("7. 발행연도별 부도율 (seasoning 편향 있음 — 해석 주의)")
     g = df.groupby("year").agg(건수=("default", "size"), 부도율=("default", "mean"))
     g["부도율"] = (g["부도율"] * 100).round(2)
     print(g.to_string())
