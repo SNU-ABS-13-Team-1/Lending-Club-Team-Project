@@ -5,6 +5,8 @@
 
 - 수집 스크립트: `src/preprocessing/fetch_macro_unemployment_rate.py`
 - 산출물: `data/processed/macro_unemployment_rate_monthly_2007-01_to_2020-09.csv`
+- 출처 카드(데이터 파일 옆): `data/processed/macro_unemployment_rate_monthly_2007-01_to_2020-09.source.md`
+  — CSV만 열어본 사람도 출처·체크섬·검증 방법을 바로 찾을 수 있게 요약해둔 파일
 
 ---
 
