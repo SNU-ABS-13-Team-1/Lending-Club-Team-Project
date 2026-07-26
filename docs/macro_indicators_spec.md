@@ -1,0 +1,160 @@
+# 거시경제 지표 수집 공통 규격
+
+독립변수로 쓸 거시경제 지표 4종을 **세션(작업자) 4개가 병렬로** 수집한다. 각자 따로 작업해도
+산출물이 그대로 합쳐지도록 이 문서의 규격을 반드시 지킨다.
+
+기준 템플릿은 이미 팀에서 확보한 `data/processed/us_treasury_GS3_GS5_monthly_2007-06_to_2020-09.csv`
+(FRED 다운로드 원형)이다. 컬럼 구조·날짜 표기를 여기에 맞춘다.
+
+> 국채수익률(GS3/GS5)은 Sharpe Ratio의 무위험수익률용이며 **독립변수가 아니다**.
+> 이 문서에서 다루는 4종만 독립변수 후보다.
+
+---
+
+## 1. 작업 분담 (이슈 / 브랜치)
+
+| # | 지표 | FRED 시리즈 | 이슈 | 브랜치 |
+| --- | --- | --- | --- | --- |
+| 1 | 실업률 | `UNRATE` | [#1](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/1) | `feature/#1-macro-unemployment-rate-gwj` |
+| 2 | 신규 실업수당청구 | `ICSA` (주간) | [#2](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/2) | `feature/#2-macro-initial-claims-gwj` |
+| 3 | 10y-2y 금리차 | `GS10`, `GS2` | [#3](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/3) | `feature/#3-macro-yield-spread-gwj` |
+| 4 | CPI | `CPIAUCSL` | [#4](https://github.com/KangGwonJae/Lending-Club-Team-Project/issues/4) | `feature/#4-macro-cpi-gwj` |
+
+각 세션은 **자기 브랜치에서만** 작업한다. 4개 브랜치는 서로 다른 파일만 건드리므로 merge 충돌이 나지 않는다.
+공통 파일(이 문서, `README.md`, `AGENTS.md` 등)은 수정하지 않는다 — 수정이 필요하면 이슈에 코멘트로 남긴다.
+
+---
+
+## 2. 공통 규격 (전 지표 공통, 예외 없음)
+
+### 2.1 기간
+- **2007-01 ~ 2020-09** (월별, 총 165개월)
+- 근거: 대출 표본의 `issue_d`가 2008-01 ~ 2020-09. 나중에 최대 12개월 시차(lag)·이동평균
+  파생변수를 만들 여지를 두기 위해 시작점을 1년 앞당겼다.
+- 기간을 임의로 늘리거나 줄이지 않는다. 원자료가 이 기간을 다 못 채우면 **행을 빼지 말고**
+  값을 비운 뒤 리포트에 사유를 적는다.
+
+### 2.2 주기
+- 최종 산출물은 **월별(monthly)** 로 통일한다.
+- 원자료가 주간/일간이면 월별로 집계하고, **집계 방식(월평균/월말값/합계)을 리포트에 명시**한다.
+  집계 전 원자료도 별도 파일로 같이 저장한다 (2.3의 `_raw` 파일).
+
+### 2.3 파일명 / 저장 위치
+`data/processed/` 아래에 저장한다.
+
+```
+macro_{지표슬러그}_monthly_2007-01_to_2020-09.csv      # 최종 산출물 (필수)
+macro_{지표슬러그}_raw_{원주기}_2007-01_to_2020-09.csv  # 원자료 (원주기가 월별이 아닐 때만)
+```
+
+지표슬러그는 위 표 순서대로 `unemployment_rate`, `initial_claims`, `yield_spread_10y2y`, `cpi`.
+
+### 2.4 컬럼 규격
+- **첫 컬럼은 반드시 `observation_date`**, 형식은 `YYYY-MM-01` (해당 월의 1일로 고정).
+  국채 파일과 동일한 표기이며, 이렇게 해야 네 파일을 `observation_date` 하나로 join할 수 있다.
+- 이후 컬럼은 **FRED 시리즈 ID를 그대로 대문자로** 쓴다 (`UNRATE`, `ICSA`, `GS10`, `GS2`, `CPIAUCSL`).
+  파생 컬럼만 소문자 스네이크케이스로 별도 이름을 붙인다 (예: `spread_10y2y`, `cpi_yoy_pct`).
+- 정렬은 `observation_date` 오름차순, 헤더 1행, 인덱스 컬럼 없음, UTF-8, 쉼표 구분.
+- 결측은 **빈 문자열**로 둔다 (`NA`, `.`, `null` 등 금지). FRED가 결측을 `.`으로 내려주므로 변환 필요.
+
+### 2.5 계절조정
+- **계절조정(SA, Seasonally Adjusted) 시리즈로 통일**한다. 4종 모두 SA 버전이 존재한다.
+- 원계열(NSA)을 쓰면 월별 계절 패턴이 부도율의 계절성과 섞여 해석이 어려워진다.
+
+### 2.6 발표시차(publication lag) — 중요
+실업률·CPI·실업수당청구는 **해당 월이 끝난 뒤에야 발표**된다. 예를 들어 2015년 3월 CPI는
+2015년 4월 중순에 발표되므로, 2015년 3월에 대출을 심사하던 시점에는 알 수 없는 값이다.
+`issue_d` 당월 값을 그대로 피처로 쓰면 미래 정보를 쓰는 셈(leakage)이 될 수 있다.
+
+- **각 세션은 원시 시계열을 발표 기준월 그대로 저장한다.** 시차를 미리 밀어 넣지 않는다.
+- 몇 개월 lag을 적용할지는 결합 단계에서 팀이 한 번에 결정한다.
+- 다만 각 지표의 **실제 발표 시차(며칠 뒤/몇 주 뒤 발표되는지)를 조사해 리포트에 기록**한다.
+  이 정보가 있어야 lag을 몇 개월로 할지 판단할 수 있다.
+
+### 2.7 개정(revision) 주의
+FRED가 내려주는 값은 **최신 개정치**이지 당시 실시간으로 발표됐던 값(vintage)이 아니다.
+CPI 계절조정계수, 실업률 벤치마크 등은 사후에 개정된다. 이번 프로젝트는 최신 개정치를 그대로
+쓰되, **이 한계를 리포트에 한 줄 명시**한다. (엄밀하게 하려면 ALFRED의 vintage 데이터가 필요.)
+
+### 2.8 출처 기록 (필수)
+`outputs/reports/macro_{지표슬러그}.md` 에 아래를 남긴다.
+
+1. 출처 기관/사이트명, 시리즈 ID, 다운로드 URL, **받은 날짜**
+2. 단위 (%, 명, 지수 등)와 계절조정 여부
+3. 원주기 → 월별 집계 방식 (해당하는 경우)
+4. 발표 시차 (2.6)
+5. 기술통계: 행 수, 기간, 결측 개수, min/max/mean/std
+6. 값 검증 근거 — 알려진 사건과 대조한 결과 (2.9)
+7. 개정 관련 한계 한 줄 (2.7)
+
+### 2.9 값 검증 (필수)
+받은 숫자가 맞는지 **알려진 사건과 대조**해 리포트에 적는다. 예:
+- 실업률: 2009-10 약 10%, 2020-04 약 14.7% (코로나 급등) 피크가 잡히는가
+- 신규 실업수당청구: 2020-03~04 주간 600만 건대 폭등이 잡히는가
+- 10y-2y: 2019년 중 일시적 역전(음수), 2007년 초반 역전이 잡히는가
+- CPI: 2008년 유가 급등 후 2009년 YoY 마이너스(디플레) 구간이 잡히는가
+
+숫자가 상식과 다르면 시리즈를 잘못 받은 것이다. 저장 전에 반드시 확인한다.
+
+### 2.10 코드
+- 다운로드/가공은 `src/preprocessing/fetch_macro_{지표슬러그}.py` 스크립트로 작성한다.
+  손으로 CSV를 편집하지 않는다 — 재현 가능해야 한다.
+- 스크립트는 URL에서 받아 규격에 맞춰 저장하는 것까지 한 번에 수행하고, 마지막에 2.8의
+  기술통계를 stdout으로 출력한다.
+
+---
+
+## 3. 지표별 세부 규격
+
+### 3.1 실업률 (이슈 #1)
+- 시리즈: `UNRATE` — Unemployment Rate, 월별, SA, 단위 %
+- 출처: FRED (원출처 U.S. Bureau of Labor Statistics)
+- 산출 컬럼: `observation_date`, `UNRATE`
+- 원주기가 이미 월별이므로 `_raw` 파일 불필요.
+
+### 3.2 신규 실업수당청구 (이슈 #2)
+- 시리즈: `ICSA` — Initial Claims, **주간**, SA, 단위 명(건)
+- 출처: FRED (원출처 U.S. Employment and Training Administration)
+- 주간 → 월별 집계: **해당 월에 속한 주간 관측치의 평균**을 기본으로 한다.
+  주의: ICSA의 주간 날짜는 그 주의 토요일(week ending) 기준이므로, 월 경계에 걸친 주를
+  어느 달로 넣었는지 리포트에 명시한다 (기본: week ending 날짜가 속한 달).
+- 산출 컬럼: `observation_date`, `ICSA` (월평균)
+- `_raw` 파일 필수: `macro_initial_claims_raw_weekly_2007-01_to_2020-09.csv`
+  (컬럼 `observation_date`, `ICSA` — 이 파일만 주간 날짜 그대로)
+- 참고: 4주 이동평균 시리즈 `IC4WSA`도 있으나, 이동평균은 나중에 직접 만들 수 있으므로
+  원계열 `ICSA`를 기준으로 한다.
+
+### 3.3 10년-2년 국채 금리차 (이슈 #3)
+- 시리즈: `GS10` (10-Year Treasury Constant Maturity Rate), `GS2` (2-Year), 둘 다 월별, 단위 %
+- 출처: FRED (원출처 Board of Governors of the Federal Reserve System)
+- **`GS`로 시작하는 월별 시리즈를 쓴다** — 기존 국채 파일(`GS3`, `GS5`)과 같은 계열이라
+  일관성이 유지된다. 일별 `DGS10`/`DGS2`나 일별 스프레드 `T10Y2Y`를 월평균 내는 방식은 쓰지 않는다.
+- 산출 컬럼: `observation_date`, `GS10`, `GS2`, `spread_10y2y`
+  - `spread_10y2y = GS10 - GS2`, 소수점 둘째 자리까지 (원자료가 소수 둘째 자리)
+- 계절조정 개념이 적용되지 않는 시리즈다 (금리는 NSA) — 2.5의 예외이며 리포트에 명시한다.
+
+### 3.4 CPI (이슈 #4)
+- 시리즈: `CPIAUCSL` — Consumer Price Index for All Urban Consumers: All Items,
+  월별, SA, 단위 지수(1982-84=100)
+- 출처: FRED (원출처 U.S. Bureau of Labor Statistics)
+- 산출 컬럼: `observation_date`, `CPIAUCSL`, `cpi_yoy_pct`
+  - `cpi_yoy_pct = (CPIAUCSL / CPIAUCSL_12개월전 - 1) * 100`, 소수점 셋째 자리까지
+  - 2007-01 ~ 2007-12 구간은 12개월 전 값이 없어 `cpi_yoy_pct`가 결측이 된다.
+    **이 12행을 삭제하지 말고** 값만 비운다. YoY 계산용 12개월치를 확보하려면 2006-01부터
+    받아 계산한 뒤 2007-01 이후만 저장하는 방식을 권장한다 (이 경우 리포트에 명시).
+- 지수 레벨(`CPIAUCSL`) 자체는 단조증가라 피처로서 의미가 약하다. 실제 모델에 쓸 후보는
+  `cpi_yoy_pct` 쪽이지만, 판단은 결합 단계로 미루고 둘 다 저장한다.
+
+---
+
+## 4. 완료 기준 (Definition of Done)
+
+각 세션은 아래를 모두 만족하면 PR을 올린다 (본문에 `Closes #이슈번호`).
+
+- [ ] `data/processed/macro_{지표슬러그}_monthly_2007-01_to_2020-09.csv` 생성, **165행**
+- [ ] (해당 시) `_raw` 파일 생성
+- [ ] `src/preprocessing/fetch_macro_{지표슬러그}.py` 생성, 재실행하면 같은 결과가 나옴
+- [ ] `outputs/reports/macro_{지표슬러그}.md` 에 2.8의 7개 항목 전부 기록
+- [ ] 2.9 값 검증 통과
+- [ ] `observation_date` 형식이 `YYYY-MM-01` 이고, 국채 파일과 join했을 때 날짜가 어긋나지 않음
+- [ ] 이 문서(`docs/macro_indicators_spec.md`)를 포함한 공통 파일을 수정하지 않음
