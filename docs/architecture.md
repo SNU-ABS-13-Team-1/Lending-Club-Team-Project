@@ -9,6 +9,10 @@ graph LR
         A2["공식 데이터 사전(Data Dictionary)"]
     end
 
+    subgraph EXT["외부 공개 통계"]
+        X1["FRED<br/>(거시경제지표, 국채수익률)"]
+    end
+
     subgraph PRE["src/preprocessing"]
         P1["행 필터링<br/>(Current/Late 제외,<br/>정책미달 라벨 재분류)"]
         P2["결측치 처리<br/>(더미변수화)"]
@@ -16,13 +20,16 @@ graph LR
         P4["비율 파생변수 생성<br/>(단위 표준화)"]
         P5["컬럼명 표준화"]
         P6["타겟(종속변수) 라벨링<br/>(정의 미확정)"]
-        B1["변수 사전 검증 스크립트"]
-        B2["변수 사전 통합 스크립트"]
+        P7["거시지표 결합<br/>(issue_d 기준, lag 미확정)"]
+        B1["변수 사전 검증 스크립트<br/>label_pre_post_by_rule.py"]
+        B3["거시지표 수집<br/>fetch_macro_*.py<br/>(다운로드+검증+저장)"]
     end
 
     subgraph PROC["data/processed"]
-        C1["변수 사전/라벨 산출물<br/>(pre/post 라벨 초안)"]
+        C1["변수 사전/라벨 산출물<br/>variable_dictionary_byGJ.xlsx"]
         C2["모델링용 처리 데이터"]
+        C3["거시경제지표 시계열<br/>macro_*.csv + .source.md"]
+        C4["무위험수익률<br/>us_treasury_GS3_GS5_*.csv"]
     end
 
     subgraph AN["src/analysis"]
@@ -40,23 +47,28 @@ graph LR
         F2["figures/"]
     end
 
-    A1 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> C2
-    A2 --> B1
-    A2 --> B2
-    B1 --> C1
-    B2 --> C1
+    A1 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> C2
+    A2 --> B1 --> C1
+    X1 --> B3
+    B3 --> C3
+    C3 --> P7
     C1 --> D1
     C2 --> D1
+    C4 --> D2
     D1 --> D2 --> D3
     D3 --> E1 --> F2
     D3 --> F1
 
     classDef planned stroke-dasharray: 4 3;
-    class P2,P3,P4,P5,P6,C2 planned;
+    class P2,P3,P4,P5,P6,P7,C2 planned;
 ```
 
 > 실선 노드 = 이미 구현/확정된 단계, 점선 노드 = 아직 팀에서 확정하지 않은 계획 단계.
-> `P2`~`P6`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/AGENTS.md` 참고).
+> `P2`~`P7`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/AGENTS.md` 참고).
+> 거시지표 **수집**(`B3`)은 완료됐으나 대출 데이터와의 **결합**(`P7`)은 미확정이다 —
+> lag 개월 수·level/YoY 선택·`issue_d` 더미와의 다중공선성 처리가 남았다
+> (`outputs/reports/macro_indicator_selection.md` 6절).
+> 무위험수익률(`C4`)은 독립변수가 아니라 Sharpe Ratio 계산(`D2`)에만 쓴다.
 
 ## 2. 승인/거절 의사결정 로직 (Sharpe Ratio 최적화)
 
