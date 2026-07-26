@@ -1,5 +1,5 @@
 """
-variable_dictionary_byGJ.xlsx('LoanStats' 시트)에 is_pre_approval 라벨을 추가해 variable_labels_rule_based.xlsx로 저장.
+variable_dictionary_byGJ.xlsx에 is_pre_approval 라벨을 규칙 기반으로 붙여 variable_labels_rule_based.xlsx로 저장.
 
 라벨링 기준 (LendingClub 신용평가 모형에서 흔히 쓰이는 leakage 방지 기준):
 - 0 (사후): 대출 실행 후 시간이 지나야(상환/연체가 진행돼야) 값이 생기는 변수.
@@ -13,7 +13,14 @@ import pandas as pd
 
 SRC = "variable_dictionary_byGJ.xlsx"
 DST = "variable_labels_rule_based.xlsx"
-SHEET = "LoanStats"
+SHEET = "Sheet1"
+
+# SRC에는 세 AI가 매긴 라벨과 그 합의 결과(is_pre_approval)가 이미 들어 있다.
+# 이 스크립트는 규칙 기반으로 라벨을 독립적으로 다시 매기므로, 비교 대상이 오염되지
+# 않도록 기존 라벨 컬럼은 떼어내고 변수 사전 원본 컬럼만 남긴 상태에서 시작한다.
+EXISTING_LABEL_COLS = [
+    "gemini_label", "vscode_label", "claude_label", "is_pre_approval", "우수사례 판단",
+]
 
 # 대출 실행 후 시간이 지나야 발생·확정되는 변수(사후, 0)
 POST_APPROVAL_VARS = {
@@ -37,7 +44,7 @@ POST_APPROVAL_VARS = {
     "settlement_percentage", "settlement_term",
 }
 
-df = pd.read_excel(SRC, sheet_name=SHEET)
+df = pd.read_excel(SRC, sheet_name=SHEET).drop(columns=EXISTING_LABEL_COLS, errors="ignore")
 
 unknown = POST_APPROVAL_VARS - set(df["LoanStatNew"])
 if unknown:

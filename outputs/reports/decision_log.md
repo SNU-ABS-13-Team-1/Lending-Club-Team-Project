@@ -137,6 +137,29 @@
 - **트레이드오프(인지된 리스크)**: 이 안대로 가면 #7에서 제기된 "1단계 Logistic vs GBM — 참고논문 AUC-Sharpe 상관계수(0.228, 약함)가 이 프로젝트에서도 재현되는지" 질문은 이번 라운드에서 검증하지 못한다. 시간이 남으면 (b) 또는 (d) 추가 검토 여지를 남겨둠.
 - **팀 협의 필요 사항**: (a)+(c) 압축안 채택 여부, 또는 성능 검증 가치가 더 크다고 판단되면 (b)를 포함하는 대안 검토.
 
+### 9. `data/processed/` 정리 및 변수 사전 단일화 — 확정 (2026-07-26)
+- **배경**: `data/processed/`에 변수 사전 계열 파일이 5개(`variable_dictionary`, `variable_labels_{claude,gemini,vscode,unified}`)나 쌓여 어느 것이 최신인지 불분명했음.
+- **검증**: `variable_labels_unified.xlsx`가 `variable_dictionary.xlsx`의 **완전한 상위집합**임을 확인 — 151행·`LoanStatNew` 순서 동일, 공통 10개 컬럼 값 100% 일치, 여기에 `gemini_label`/`vscode_label`/`claude_label`/`is_pre_approval`/`우수사례 판단` 5개 컬럼이 추가된 형태.
+- **결정**: unified를 **`variable_dictionary_byGJ.xlsx`** 라는 이름으로 단일 원본화하고, 나머지 4개 파일과 초기 탐색용 `raw_loan_sample_100rows.xlsx`를 삭제. 이후 변수 사전/라벨은 이 파일 하나만 참조한다.
+- **`unify_variable_labels.py` 삭제**: 입력 3개(세 AI 라벨 파일)가 사라졌을 뿐 아니라, 결과물 unified에 스크립트가 생성하지 않는 `우수사례 판단` 컬럼(151행 중 1행만 값 있음)이 들어 있어 **이미 스크립트로 재현 불가능한 상태**였음 — 소임을 다한 코드로 판단해 제거.
+- **`label_pre_post_by_rule.py` 수정**: 입력 시트명(`LoanStats` → `Sheet1`)을 맞추고, 새 입력에 이미 들어 있는 라벨 컬럼 5개를 읽는 즉시 제거하도록 변경. 규칙 기반 라벨이 세 AI 합의 라벨을 덮어써 비교 대상이 오염되는 것을 막기 위함. 수정 후 실행해 기존과 동일한 결과(사전 111 / 사후 40) 확인.
+- **복원 방법**: 삭제된 파일은 모두 커밋 `c089792` 시점에 남아 있다.
+  ```bash
+  git show c089792:data/processed/variable_labels_gemini.xlsx > variable_labels_gemini.xlsx
+  git show c089792:src/preprocessing/unify_variable_labels.py > unify_variable_labels.py
+  ```
+
+### 10. 거시경제지표 수집 규격 확정 및 4인 병렬 분담 — 확정 (2026-07-26)
+- **배경**: #2에서 후보 4종(`UNRATE`, `ICSA`, 10Y-2Y 금리차, `CPIAUCSL`)은 확정했으나 수집 규격이 없어, 작업자별로 기간·주기·컬럼명이 어긋날 위험이 있었음.
+- **결정**: `docs/macro_indicators_spec.md`에 공통 규격을 확정하고 지표별로 이슈 #1~#4 + `feature/#N-macro-*-gwj` 브랜치를 나눠 병렬 수집.
+  - 기간 **2007-01 ~ 2020-09 (165행 고정)** — 표본 `issue_d`가 2008-01~2020-09이고, 최대 12개월 시차·이동평균 파생변수 여지를 두기 위해 1년 앞당김.
+  - 날짜 컬럼 `observation_date`(`YYYY-MM-01`), 값 컬럼은 FRED 시리즈 ID 대문자 그대로 — 기존 `us_treasury_GS3_GS5_*.csv`와 동일 규격이라 `observation_date` 하나로 join 가능.
+  - 계절조정(SA) 시리즈로 통일 (금리는 개념상 예외).
+- **10Y-2Y 금리차 시리즈 변경**: #2에서는 `T10Y2Y`(일별 스프레드)로 적었으나, **월별 `GS10` - `GS2`** 로 변경. 이미 확보한 무위험수익률 파일이 같은 계열의 월별 시리즈(`GS3`, `GS5`)라 일관성이 유지되고, 일별을 월평균 내는 추가 가공이 불필요하기 때문.
+- **발표시차(leakage) 처리 — 수집 단계에서는 시차를 적용하지 않기로 함**: 실업률·CPI 등은 해당 월이 끝난 뒤에야 발표되므로(예: 2015-03 CPI는 2015-04 중순 발표) `issue_d` 당월 값을 그대로 쓰면 심사 시점에 알 수 없던 정보를 쓰는 셈이 됨. 각 수집 세션은 **원시 시계열을 발표 기준월 그대로 저장하고 실제 발표 시차만 조사·기록**하며, 몇 개월 lag을 적용할지는 결합 단계에서 일괄 결정한다.
+- **남은 판단(#2에서 이어짐)**: lag 개월 수, level/YoY/이동평균 중 선택, issue_d 연·월 더미와 병행 시 다중공선성 처리.
+- **한계 기록**: FRED가 제공하는 값은 최신 개정치이지 당시 실시간 발표값(vintage)이 아니다. 엄밀하게 하려면 ALFRED vintage 데이터가 필요하나 이번 프로젝트는 최신 개정치를 사용하고 이 한계를 보고서에 명시한다.
+
 ---
 
 ## 다음 논의 필요 (to-do 6~8)

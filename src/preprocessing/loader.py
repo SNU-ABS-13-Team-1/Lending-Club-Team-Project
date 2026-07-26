@@ -1,6 +1,6 @@
 """Raw CSV/데이터 사전 로딩 및 기본 검증 뼈대.
 
-기존 src/preprocessing/label_pre_post_by_rule.py, unify_variable_labels.py와의 관계
+기존 src/preprocessing/label_pre_post_by_rule.py와의 관계
 (대체/래핑/병행)는 아직 팀 확정 전이다 — 이 파일을 실제로 구현하기 전에 팀에서 정할 것.
 """
 
