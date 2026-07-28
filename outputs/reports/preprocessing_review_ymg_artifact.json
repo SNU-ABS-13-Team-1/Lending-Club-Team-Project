@@ -1,0 +1,881 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Lending Club XGBoost 전처리·학습 가이드 (ymg)",
+    "description": "ymg가 첨부 변수 분류표와 전체 1.2GB Lending Club 데이터를 전수 검토해 작성한 XGBoost 맞춤형 기술 가이드",
+    "generatedAt": "2026-07-29T00:39:35+09:00",
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Lending Club XGBoost 전처리·학습 가이드 (ymg)"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "body": "## 기술 요약\n\n**첨부 변수표의 누수 차단과 141열 전수 분류는 좋은 출발점이지만, 전처리 레시피는 XGBoost에 맞게 크게 단순화해야 합니다.** 예측 후보는 83개, 타겟은 `loan_status` 1개, 제외는 57개로 원본 141열과 정확히 일치합니다. 다만 표준화, 일괄 중앙값 대체, 선제 구간화, VIF식 중복변수 제거는 트리 부스팅의 기본 요구사항이 아닙니다.\n\n**권장 기본선은 수치형 `NaN` 보존, `tree_method=\"hist\"`, 검증된 범주 스키마, 무스케일링입니다.** 구조적 결측에는 의미가 분명한 `is_missing` 또는 `has_event`만 선택적으로 추가하고, 로그변환·이진화·결측 대체는 원본 대비 시간 외 validation 성능이 개선될 때만 채택합니다.\n\n**타겟은 정책미충족 별칭을 정상화하면 1,117,571건, 부도율 19.49%입니다.** 원본 CSV에는 실제 대출 1,755,294건 외에 대출이 아닌 메타행 1개가 섞여 있으므로 먼저 제거해야 합니다. `Default` 268건의 부도 포함 여부는 아직 팀 미결사항이므로 주 분석에서는 제외하고 민감도 분석에서 포함하는 안을 권고합니다.\n\n**가장 큰 모델링 위험은 결측치 자체보다 결과 미확정과 시간 편향입니다.** 2018년 발행분의 결과 확정률은 39.7%, 2019년은 14.6%, 2020년은 2.9%뿐입니다. 최종 상태가 확정된 행만 무작위로 나누면 최근 코호트의 조기상환·조기부도 사례가 과대표집됩니다. 따라서 성숙도 필터와 월 코호트를 지키는 시간순 60/20/20 분할을 주 분석으로 두고, 기존 stratified random 60/20/20은 비교용 baseline으로만 유지하는 것이 안전합니다."
+      },
+      {
+        "id": "workbook_summary",
+        "type": "markdown",
+        "sourceId": "src_workbook",
+        "body": "## 첨부 파일은 83개 X와 57개 제외변수를 빠짐없이 분리했습니다\n\n첨부 Numbers 문서는 `요약`, `유지변수_84`, `제외변수_57`, `현금흐름표_구성`의 4개 시트로 구성됩니다. 유지 목록은 A 22개, B 40개, C 20개와 특수 시점변수 `issue_d` 1개로 총 83개 X를 만들고, `loan_status`를 별도 타겟으로 둡니다. 제외 57개는 사후 누수 31개, 공동신청 고결측 15개, 저분산 6개, 자유텍스트·중복 3개, 식별자·무정보 2개입니다.\n\n결측 티어는 T0 28개, T1 34개, T2 14개, T3 6개입니다. 특히 예측용 사전변수 표와 IRR·회수율 계산용 사후변수 표를 분리한다는 원칙은 그대로 유지해야 합니다. `total_pymnt`, `recoveries`, `last_pymnt_d`, 사후 FICO 등은 현금흐름 평가에는 쓸 수 있지만 부도확률 X에는 절대 합치지 않습니다.\n\n다만 이 문서는 저장소의 단일 변수 사전인 `variable_dictionary_byGJ.xlsx`를 대체하는 확정본이 아니라, 현재 141열 CSV에 대한 별도 피처 선택안으로 취급해야 합니다."
+      },
+      {
+        "id": "data_scope",
+        "type": "markdown",
+        "sourceId": "src_csv",
+        "body": "## 전체 데이터에서 35.25%는 아직 `Current`입니다\n\nCSV는 141열이며 파서상 1,755,295행이지만, 그중 1행은 `id`에 설명문만 들어간 메타행입니다. 실제 대출 1,755,294건의 `id`는 모두 고유하고 `url`도 `id`와 일대일로 대응합니다. 아래 분포에서 `Current` 618,688건과 Late·Grace·Issued는 최종 부도 라벨이 아니므로 이진 지도학습 타겟에서 제외해야 합니다.\n\n`Fully Paid`와 `Charged Off`의 정책미충족 별칭까지 합친 strict 이진 표본은 전체 실제 대출의 63.67%입니다. 이 비율을 단순히 \"결측 제거 후 남은 표본\"으로 해석하면 안 됩니다. 최신 코호트일수록 결과가 확정된 일부 대출만 남는 선택편향이 포함되어 있습니다."
+      },
+      {
+        "id": "loan_status_chart_block",
+        "type": "chart",
+        "chartId": "loan_status_chart"
+      },
+      {
+        "id": "data_corrections",
+        "type": "markdown",
+        "body": "## 전수 실측으로 첨부 가이드의 다섯 부분을 수정해야 합니다\n\n**첫째, FICO 구간 폭은 30점이 아닙니다.** strict 타겟 표본에서 `fico_range_high - fico_range_low`는 1,117,380건이 4점, 191건이 5점입니다. `fico_avg` 파생은 가능하지만 설명 근거를 고쳐야 합니다.\n\n**둘째, 공동신청은 버리기엔 작지 않습니다.** 전체 실제 대출 중 `Joint App`은 126,357건, 7.20%입니다. 공동신청 전용 15열을 기본 모델에서 제외하더라도, XGBoost native missing을 사용하는 challenger에서는 포함해 시간 외 성능을 비교할 가치가 있습니다.\n\n**셋째, 희소 사건 변수도 자동 제외하지 않습니다.** `num_tl_120dpd_2m`, `num_tl_30dpd`, `delinq_amnt`, `acc_now_delinq`의 양수 사건은 각각 777건, 3,635건, 4,441건, 5,406건입니다. 완전 상수 `policy_code`와 달리 희소하지만 강한 위험 신호일 수 있습니다.\n\n**넷째, T2/T3는 결측 원인이 순수하지 않습니다.** strict 표본에서 11개 T2 블록의 결측률은 첨부 파일의 전체표본 기준 29.6%가 아니라 45.59%입니다. `mths_since_recent_inq`도 2007~2011년 100% 결측이므로 사건없음과 수집시기 효과가 섞여 있습니다. 결측 분기가 발행연도나 수집제도 프록시가 되는지 확인해야 합니다.\n\n**다섯째, 문서 표기를 저장소 결정과 맞춰야 합니다.** 모호한 `D_X` 대신 `is_missing` 또는 `is_observed`를 쓰고, 거시 금리차는 `T10Y2Y`가 아니라 월별 `GS10-GS2`, 무위험수익률은 `DGS3/DGS5`가 아니라 월별 `GS3/GS5`를 사용합니다. HPR 연율화 선택지는 저장소 decision log에서 기각됐습니다."
+      },
+      {
+        "id": "data_corrections_table_block",
+        "type": "table",
+        "tableId": "data_corrections_table"
+      },
+      {
+        "id": "xgb_preprocessing",
+        "type": "markdown",
+        "body": "## XGBoost에서는 결측 대체와 스케일링을 기본 단계에서 뺍니다\n\n[XGBoost 공식 FAQ](https://xgboost.readthedocs.io/en/stable/faq.html)에 따르면 트리 부스터는 `NaN`의 기본 분기 방향을 학습합니다. 따라서 T1은 우선 원래 `NaN`으로 두고, T2는 `NaN`과 선택적 `is_collected` 플래그, T3는 `NaN`과 선택적 `has_event` 플래그를 비교합니다. `0`은 실제 값일 수 있으므로 결측을 0으로 바꾸지 않습니다.\n\n트리 기반 모델은 임의의 스케일 변화에 강하므로 StandardScaler·MinMaxScaler는 제거합니다. 로그변환, winsorization, count 구간화도 필수가 아닙니다. 원본값을 기본으로 두고 오류값 정정과 단위 파싱만 수행한 뒤, 파생 버전이 validation Sharpe와 확률보정을 개선할 때만 추가합니다.\n\n범주형은 두 경로를 사전 정의합니다. 기본 challenger는 pandas `category`와 `enable_categorical=True`, `tree_method=\"hist\"`를 사용하는 native categorical입니다. 대안은 train에서만 fit한 희소 One-Hot Encoding입니다. [공식 categorical 가이드](https://xgboost.readthedocs.io/en/stable/tutorials/categorical.html)에 따라 native categorical 모델은 JSON 또는 UBJSON으로 저장하고, 학습·추론 category dtype과 미지 범주 정책을 함께 버전 관리합니다. Target Encoding은 기본안에서 제외하며, 꼭 쓸 경우 train 내부 out-of-fold 방식만 허용합니다."
+      },
+      {
+        "id": "preprocessing_table_block",
+        "type": "table",
+        "tableId": "preprocessing_table"
+      },
+      {
+        "id": "feature_recipe",
+        "type": "markdown",
+        "body": "## 실제 변환은 파싱·의미 보존·누수 방지에 집중합니다\n\n### 수치·날짜 파싱\n\n- `int_rate`, `revol_util`: `%`를 제거해 숫자로 변환합니다. 모델 입력은 퍼센트포인트여도 되지만 수익률 계산용 `int_rate`는 반드시 소수율로 별도 변환합니다.\n- `term`: `36 months`와 `60 months`를 범주 또는 36/60 숫자로 변환합니다.\n- `emp_length`: `<1 year`부터 `10+ years`까지 순서형 숫자와 `is_missing`을 비교하거나 native category로 둡니다.\n- `earliest_cr_line`: `issue_d`와의 차이인 `credit_history_months`를 만들고 미래 날짜·음수를 품질 오류로 검사합니다.\n- FICO: `fico_avg=(low+high)/2`를 만들 수 있으나 원본 두 열을 제거할지는 full/lean ablation으로 결정합니다.\n\n### 범주형\n\n`grade`, `sub_grade`, `home_ownership`, `purpose`, `verification_status`, `addr_state`, `application_type`, `initial_list_status`는 raw object로 두지 않습니다. Native categorical이면 train에서 정의한 category 집합을 validation/test에도 그대로 적용하고, OHE면 희소범주와 미지범주 정책을 train에서만 fit합니다. `addr_state`는 51개 값이지만 native categorical이나 OHE로 충분히 다룰 수 있으므로 Target Encoding을 먼저 선택할 이유가 없습니다.\n\n### 파생변수와 모델 사양\n\n비율형 파생은 경제적 의미가 분명할 때 유지합니다. 예를 들어 `installment/annual_inc`, `loan_amnt/annual_inc`, `revol_bal/total_rev_hi_lim`은 원본과 함께 후보로 둘 수 있습니다. 다만 0 또는 결측 분모를 명시적으로 처리하고 모든 파생 규칙은 split 이후 train 기준으로 고정합니다.\n\n투자자 관점의 주 모델은 `grade`, `sub_grade`, `int_rate`, `funded_amnt` 등 발행 시점 조건을 포함합니다. 별도 lean 모델은 이 LC 조건변수를 제외해 \"LC 기존 심사정보를 얼마나 재사용했는가\"를 측정합니다. XGBoost에는 다중공선성 때문에 대표변수 하나만 남길 의무가 없지만, 중복변수는 계산량과 importance 해석을 흐릴 수 있으므로 두 사양을 validation Sharpe와 보정품질로 비교합니다."
+      },
+      {
+        "id": "target_definition",
+        "type": "markdown",
+        "sourceId": "src_csv",
+        "body": "## 타겟은 정책미충족 별칭을 먼저 정상화합니다\n\n주 분석의 `y=0`은 `Fully Paid`와 `Does not meet the credit policy. Status:Fully Paid`, `y=1`은 `Charged Off`와 정책미충족 Charged Off입니다. 그 결과 정상 899,745건, 부도 217,826건, 총 1,117,571건이며 부도율은 19.491%입니다.\n\n`Current`, 두 Late, `In Grace Period`, `Issued`는 결과가 확정되지 않았으므로 제외합니다. `Default` 268건은 타겟 행에서는 제외라고 적혀 있지만 요약과 저장소에서는 포함 여부가 미결입니다. 따라서 주 분석에서 제외하고 `Default=1` 민감도 분석을 별도로 실행합니다. 포함 시 표본은 1,117,839건, 부도율은 19.510%로 전체 비율은 거의 변하지 않지만 정의의 일관성이 더 중요합니다.\n\n`loan_status`는 y를 만든 직후 X에서 제거합니다. 모든 사후 상환·추심·최근 FICO 열도 같은 단계에서 예측 테이블과 물리적으로 분리합니다."
+      },
+      {
+        "id": "target_mapping_table_block",
+        "type": "table",
+        "tableId": "target_mapping_table"
+      },
+      {
+        "id": "seasoning",
+        "type": "markdown",
+        "sourceId": "src_csv",
+        "body": "## 최신 코호트일수록 결과 확정 표본이 급격히 선택됩니다\n\n발행연도별로 Fully Paid·Charged Off 및 두 정책미충족 별칭 중 하나로 결과가 확정된 비중은 2016년 92.8%에서 2017년 70.8%, 2018년 39.7%, 2019년 14.6%, 2020년 2.9%로 급락합니다. 최신 연도의 strict target은 전체 코호트의 대표표본이 아니라 빨리 완납했거나 빨리 부도난 대출에 가깝습니다.\n\n따라서 무작위 stratified split은 같은 발행환경과 같은 수집제도 패턴을 Train·Validation·Test에 섞어 성능을 낙관적으로 만듭니다. `issue_d`는 단순 피처이기 전에 분할 키이며, 같은 월의 대출은 서로 다른 partition으로 쪼개지 않는 것이 좋습니다."
+      },
+      {
+        "id": "resolved_share_chart_block",
+        "type": "chart",
+        "chartId": "resolved_share_chart"
+      },
+      {
+        "id": "split_strategy",
+        "type": "markdown",
+        "sourceId": "src_csv",
+        "body": "## 성숙도 필터 후 월 단위 시간순 60/20/20을 주 분석으로 권고합니다\n\n### 권장 주 분석\n\n관측 종료를 2020년 9월로 가정하면 최소 성숙도 필터는 36개월 대출 `issue_d <= 2017-09`, 60개월 대출 `issue_d <= 2015-09`입니다. strict target에 적용하면 814,621건, 부도 138,337건, 부도율 16.98%가 남습니다. 이는 최종상태 분류를 위한 최소 필터이며, 실제 charge-off 인식 지연까지 보수적으로 반영하려면 3~4개월 버퍼를 추가해야 합니다.\n\n성숙도 표본을 월 단위로 약 60/20/20 분할하면 Train은 2015년 11월까지 483,626건, Validation은 2015년 12월~2016년 9월 165,067건, Test는 2016년 10월~2017년 9월 165,928건입니다. 단, term별 cutoff 때문에 후기 Test는 사실상 36개월 대출 중심이 됩니다. 최종적으로는 36개월·60개월을 별도 모델 또는 최소한 별도 성능표로 평가해야 합니다.\n\n### 비교용 baseline\n\n기존 저장소 규칙의 stratified random 60/20/20은 670,542 / 223,514 / 223,515건이며 세 partition 부도율이 모두 약 19.49%입니다. 디버깅과 기존 노트북 재현에는 유용하지만 시간 일반화 검증을 대신하지 못합니다.\n\n성숙도 필터 없이 strict 표본을 월 순서로 나누면 Train은 2016년 7월까지, Validation은 2016년 8월~2017년 7월, Test는 2017년 8월 이후가 됩니다. Test 부도율이 22.52%까지 올라가는 것은 실제 시간 변화와 최신 코호트 선택편향이 섞인 결과이므로 주 분석으로 쓰기 어렵습니다."
+      },
+      {
+        "id": "split_table_block",
+        "type": "table",
+        "tableId": "split_table"
+      },
+      {
+        "id": "training_strategy",
+        "type": "markdown",
+        "body": "## Early stopping과 calibration은 공식 Validation 밖에서 해결합니다\n\n공식 프로젝트 Validation 20%는 Sharpe threshold와 최종 모델 사양을 비교하는 정책 선택용으로 보존합니다. XGBoost의 early stopping에 이 Validation을 반복 사용하면 같은 데이터로 트리 수, 하이퍼파라미터, 확률보정, 승인 threshold를 모두 선택하게 됩니다. 따라서 Train 60% 내부를 다시 fit/early-stop 또는 시간순 inner fold로 나눕니다.\n\n권장 순서는 다음과 같습니다.\n\n1. Train 내부 fit 구간에서 XGBoost를 학습하고 뒤쪽 inner 구간으로 early stopping과 하이퍼파라미터를 고릅니다.\n2. 필요하면 Train 내부 out-of-fold 예측으로 sigmoid 또는 isotonic calibration을 학습합니다. calibrator는 원 모델 학습행과 분리되어야 합니다.\n3. 고정된 모델·calibrator로 공식 Validation의 PD를 예측하고, 오직 Validation Sharpe Ratio로 승인 threshold를 선택합니다.\n4. 모델·calibrator·threshold를 고정한 채 Test를 한 번만 평가합니다. Validation을 합쳐 재학습하면 PD 척도가 바뀌므로 기존 threshold를 그대로 쓰지 못할 수 있습니다.\n\n시작점은 아래와 같습니다. 값은 확정 하이퍼파라미터가 아니라 early-stopping 기반 탐색의 출발점입니다.\n\n```python\nmodel = xgb.XGBClassifier(\n    objective=\"binary:logistic\",\n    tree_method=\"hist\",\n    enable_categorical=True,\n    n_estimators=5000,\n    learning_rate=0.03,\n    max_depth=6,\n    min_child_weight=20,\n    subsample=0.8,\n    colsample_bytree=0.8,\n    reg_lambda=5.0,\n    eval_metric=[\"aucpr\", \"logloss\"],\n    early_stopping_rounds=100,\n    scale_pos_weight=1.0,\n    random_state=42,\n)\nmodel.fit(X_fit, y_fit, eval_set=[(X_early_stop, y_early_stop)], verbose=False)\n```\n\n마지막 `eval_metric`인 logloss가 early stopping 기준이 됩니다. 부도율 19.49%는 극단적 불균형이 아니므로 `scale_pos_weight=1`을 확률모형 기본값으로 둡니다. 음성/양성 비율인 약 4.13은 challenger로만 비교하고, 가중 모델을 채택하면 reliability curve, Brier score, logloss로 재보정을 반드시 확인합니다. Accuracy는 보고하지 않고 ROC-AUC·AP는 진단용, 모델·정책 최종 선택은 Validation Sharpe로 합니다."
+      },
+      {
+        "id": "validation_and_operations",
+        "type": "markdown",
+        "body": "## 최종 검증은 Sharpe·확률보정·시간 안정성을 함께 봅니다\n\n- **정책 성과:** Validation에서 threshold별 승인율, 평균수익률, 표본표준편차, Sharpe를 계산하고 전부승인·전부거절 baseline과 비교합니다.\n- **확률 품질:** logloss, Brier score, calibration curve를 전체와 `term`, `grade`, 발행연도별로 확인합니다. PD가 기대수익 계산에 들어간다면 AUC보다 보정이 더 중요합니다.\n- **시간 안정성:** 월별 부도율, 월별 평균 PD, 승인율, Sharpe를 확인하고 최근 코호트에서 결측분기·범주분포가 변하는지 점검합니다.\n- **피처 ablation:** native missing 대 명시적 결측 플래그, native categorical 대 OHE, 공동신청 15열 포함/제외, 희소 사건 4열 포함/제외, LC 조건변수 full/lean을 사전 정의해 비교합니다.\n- **재현성:** split 인덱스, 원본 SHA-256, XGBoost·pandas·scikit-learn 버전, category vocabulary, 파라미터, `best_iteration`, calibrator, threshold를 저장합니다. 모델은 pickle이 아니라 `.ubj` 또는 `.json`으로 보관합니다.\n- **안정성 반복:** 저장소의 seed 0~29 반복은 보조 안정성 점검으로 사용하되, 시간 외 Test를 대체하지 않습니다."
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## 이 가이드가 확정하지 않는 세 가지\n\n첫째, `Default` 268건의 y=1 포함 여부는 팀 결정이 필요합니다. 주 분석 제외와 포함 민감도 분석을 제안했지만 저장소 규칙 자체는 수정하지 않았습니다.\n\n둘째, 성숙도 기준의 관측 종료일을 데이터 안에서 직접 검증할 전용 snapshot 날짜가 없습니다. 이 보고서는 파일 범위에 맞춰 2020년 9월을 가정했습니다. 60개월 2015년 코호트에도 `Current`가 남아 있으므로 실제 데이터 추출일과 charge-off 인식 지연을 확인해야 합니다.\n\n셋째, 시간순 분할은 현재 `src/analysis/AGENTS.md`의 무작위 `train_test_split` 규칙과 다릅니다. 본 가이드는 예측 타당성 측면의 변경 제안이며, 채택한다면 팀 합의 후 해당 규칙과 decision log를 함께 갱신해야 합니다.\n\n거시지표의 lag·level/YoY·포함 여부도 기존 decision log에서 미확정입니다. T2 결측과 거시지표 모두 발행시점 프록시가 될 수 있으므로 독립적으로 추가하지 말고 동일한 시간 외 validation에서 함께 검증합니다."
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## 권장 실행 순서\n\n1. 메타행 제거, 정책미충족 status 정상화, `Default` 주/민감도 정의를 코드와 테스트로 고정합니다.\n2. 관측 종료일과 term별 성숙도 기준을 팀에서 확정하고, 월 코호트를 보존한 split 인덱스를 저장합니다.\n3. 83개 피처 baseline을 `NaN` 보존·무스케일링으로 만들고 object 열을 숫자 또는 고정 category dtype으로 변환합니다.\n4. native categorical과 희소 OHE 두 파이프라인을 Train 내부 early stopping으로 비교합니다.\n5. 공동신청·희소사건·결측플래그·LC 조건변수 ablation을 실행하고 calibration과 Validation Sharpe로 모델 사양을 고릅니다.\n6. 고정된 모델·calibrator·threshold를 Test에 한 번 적용하고 term·발행월별 안정성을 보고합니다.\n7. 구현 전 현재 저장소에 없는 XGBoost 의존성 버전을 고정하고, 모델·스키마·threshold를 함께 보관합니다."
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## 팀이 답해야 할 후속 질문\n\n- 최종상태 분류를 유지할 것인가, 동일한 성과관측기간을 가진 horizon target으로 바꿀 것인가?\n- 36개월·60개월을 하나의 모델로 학습할 것인가, term별 모델로 분리할 것인가?\n- `Default`를 부도로 포함할 것인가?\n- 투자자 관점 full 모델을 주 모델로 확정하고 LC 조건변수 제외 모델은 해석용 challenger로 둘 것인가?\n- 시간순 분할을 프로젝트 공식 60/20/20 규칙으로 채택할 것인가?"
+      }
+    ],
+    "charts": [
+      {
+        "id": "loan_status_chart",
+        "type": "bar",
+        "title": "전체 loan_status 분포",
+        "description": "실제 대출 1,755,294건. 최종 이진 타겟은 Fully Paid와 Charged Off 계열만 사용합니다.",
+        "dataset": "loan_status_distribution",
+        "encodings": {
+          "x": {
+            "field": "status"
+          },
+          "y": {
+            "field": "count"
+          }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "grouping": "single"
+        },
+        "sourceId": "src_csv"
+      },
+      {
+        "id": "resolved_share_chart",
+        "type": "line",
+        "title": "발행연도별 결과 확정 비중",
+        "description": "2013~2020년. 최신 코호트일수록 최종상태가 확정된 표본 비중이 급격히 줄어듭니다.",
+        "dataset": "resolved_share_by_year",
+        "encodings": {
+          "x": {
+            "field": "issue_year"
+          },
+          "y": {
+            "field": "resolved_share"
+          }
+        },
+        "options": {
+          "points": "always"
+        },
+        "sourceId": "src_csv"
+      }
+    ],
+    "tables": [
+      {
+        "id": "data_corrections_table",
+        "title": "첨부 가이드 전수 검증 결과",
+        "description": "전체 실제 대출 또는 strict 이진 타겟 표본에서 확인한 정정 사항",
+        "dataset": "data_corrections",
+        "columns": [
+          {
+            "field": "order",
+            "label": "순서",
+            "type": "number"
+          },
+          {
+            "field": "check",
+            "label": "검증 항목",
+            "type": "text"
+          },
+          {
+            "field": "evidence",
+            "label": "전수 실측",
+            "type": "text"
+          },
+          {
+            "field": "action",
+            "label": "가이드 반영",
+            "type": "text"
+          }
+        ],
+        "defaultSort": {
+          "field": "order",
+          "direction": "asc"
+        },
+        "sourceId": "src_csv"
+      },
+      {
+        "id": "preprocessing_table",
+        "title": "기존 레시피와 XGBoost 권고 비교",
+        "description": "기본선은 정보 손실이 가장 적은 처리이며, 추가 변환은 시간 외 validation에서 비교합니다.",
+        "dataset": "preprocessing_changes",
+        "columns": [
+          {
+            "field": "priority",
+            "label": "우선순위",
+            "type": "number"
+          },
+          {
+            "field": "area",
+            "label": "항목",
+            "type": "text"
+          },
+          {
+            "field": "existing",
+            "label": "첨부 가이드",
+            "type": "text"
+          },
+          {
+            "field": "recommendation",
+            "label": "XGBoost 기본선",
+            "type": "text"
+          },
+          {
+            "field": "validation",
+            "label": "검증 포인트",
+            "type": "text"
+          }
+        ],
+        "defaultSort": {
+          "field": "priority",
+          "direction": "asc"
+        },
+        "sourceId": "src_method"
+      },
+      {
+        "id": "target_mapping_table",
+        "title": "loan_status 타겟 매핑",
+        "description": "주 분석은 Fully Paid와 Charged Off 계열만 사용하고 Default는 민감도 분석으로 분리합니다.",
+        "dataset": "target_mapping",
+        "columns": [
+          {
+            "field": "order",
+            "label": "순서",
+            "type": "number"
+          },
+          {
+            "field": "raw_status",
+            "label": "원본 상태",
+            "type": "text"
+          },
+          {
+            "field": "normalized_status",
+            "label": "정상화",
+            "type": "text"
+          },
+          {
+            "field": "count",
+            "label": "건수",
+            "type": "number",
+            "format": "compact"
+          },
+          {
+            "field": "y",
+            "label": "주 분석 y",
+            "type": "text"
+          },
+          {
+            "field": "treatment",
+            "label": "처리",
+            "type": "text"
+          }
+        ],
+        "defaultSort": {
+          "field": "order",
+          "direction": "asc"
+        },
+        "sourceId": "src_csv"
+      },
+      {
+        "id": "split_table",
+        "title": "데이터 분할 후보 비교",
+        "description": "각 방법의 Train·Validation·Test 표본과 부도율. 월 코호트는 서로 다른 partition으로 쪼개지 않습니다.",
+        "dataset": "split_comparison",
+        "columns": [
+          {
+            "field": "order",
+            "label": "순서",
+            "type": "number"
+          },
+          {
+            "field": "method",
+            "label": "방법",
+            "type": "text"
+          },
+          {
+            "field": "partition",
+            "label": "Partition",
+            "type": "text"
+          },
+          {
+            "field": "period",
+            "label": "발행기간",
+            "type": "text"
+          },
+          {
+            "field": "rows",
+            "label": "건수",
+            "type": "number",
+            "format": "compact"
+          },
+          {
+            "field": "default_rate",
+            "label": "부도율",
+            "type": "percent",
+            "format": "percent"
+          },
+          {
+            "field": "use",
+            "label": "권고 용도",
+            "type": "text"
+          }
+        ],
+        "defaultSort": {
+          "field": "order",
+          "direction": "asc"
+        },
+        "sourceId": "src_csv"
+      }
+    ],
+    "sources": [
+      {
+        "id": "src_csv",
+        "label": "lending_club_2020_train.csv 전체본",
+        "path": "data/lending_club_2020_train.csv",
+        "query": {
+          "description": "수치는 pandas chunk 전수 프로파일에서 계산했습니다. 아래 DuckDB 호환 SQL은 동일 원본에서 대출이 아닌 메타행을 제외한 분석 모수를 재현합니다.",
+          "engine": "DuckDB",
+          "language": "sql",
+          "executed_at": "2026-07-29T00:39:35+09:00",
+          "sql": "SELECT *\nFROM read_csv_auto('data/lending_club_2020_train.csv', header = true, all_varchar = true, ignore_errors = true)\nWHERE regexp_matches(id, '^[0-9]+$')",
+          "filters": [
+            "대출이 아닌 메타행 1개 제외",
+            "정책미충족 loan_status 접두어 정상화",
+            "strict target은 Fully Paid와 Charged Off 계열"
+          ],
+          "metric_definitions": [
+            "부도율 = Charged Off 계열 건수 / (Fully Paid 계열 + Charged Off 계열)",
+            "결과 확정 비중 = Fully Paid, Charged Off 및 정책미충족 별칭 / 발행연도 전체 대출",
+            "성숙도 필터 = 관측종료 2020-09 가정, 36개월 issue_d<=2017-09, 60개월 issue_d<=2015-09"
+          ]
+        }
+      },
+      {
+        "id": "src_workbook",
+        "label": "lending_club_변수분류_류성환.xlsx_v2.numbers",
+        "query": {
+          "description": "Numbers 문서 4개 시트의 셀 값을 전수 추출해 변수 분류와 기존 전처리 지침 검토",
+          "engine": "numbers-parser",
+          "language": "python",
+          "executed_at": "2026-07-29T00:39:35+09:00"
+        }
+      },
+      {
+        "id": "src_repo",
+        "label": "저장소 방법론 규칙과 의사결정 로그",
+        "path": "outputs/reports/decision_log.md",
+        "query": {
+          "description": "AGENTS.md, src 하위 규칙, decision_log.md의 확정·미확정 사항 대조"
+        }
+      },
+      {
+        "id": "src_method",
+        "label": "첨부 변수 가이드와 XGBoost·scikit-learn 공식 문서 종합",
+        "href": "https://xgboost.readthedocs.io/en/stable/",
+        "query": {
+          "description": "첨부 전처리 레시피를 XGBoost 트리 부스터의 결측·범주형·스케일 특성에 맞춰 재설계",
+          "engine": "Artifact snapshot SQL",
+          "language": "sql",
+          "sql": "SELECT priority, area, existing, recommendation, validation\nFROM preprocessing_changes\nORDER BY priority",
+          "filters": [
+            "XGBoost tree booster 기준",
+            "부도확률 및 Sharpe threshold 사용",
+            "Train/Validation/Test 누수 차단"
+          ]
+        }
+      },
+      {
+        "id": "src_xgb_missing",
+        "label": "XGBoost FAQ — Missing values",
+        "href": "https://xgboost.readthedocs.io/en/stable/faq.html"
+      },
+      {
+        "id": "src_xgb_categorical",
+        "label": "XGBoost — Categorical Data",
+        "href": "https://xgboost.readthedocs.io/en/stable/tutorials/categorical.html"
+      },
+      {
+        "id": "src_xgb_parameters",
+        "label": "XGBoost Parameters",
+        "href": "https://xgboost.readthedocs.io/en/stable/parameter.html"
+      },
+      {
+        "id": "src_sklearn_calibration",
+        "label": "scikit-learn — Probability calibration",
+        "href": "https://scikit-learn.org/stable/modules/calibration.html"
+      },
+      {
+        "id": "src_sklearn_scaling",
+        "label": "scikit-learn — Feature scaling",
+        "href": "https://scikit-learn.org/stable/auto_examples/preprocessing/plot_scaling_importance.html"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-07-29T00:39:35+09:00",
+    "datasets": {
+      "loan_status_distribution": [
+        {
+          "rank": 1,
+          "status": "Fully Paid",
+          "raw_status": "Fully Paid",
+          "count": 898522,
+          "share": 0.5118925946,
+          "target_use": "y=0"
+        },
+        {
+          "rank": 2,
+          "status": "Current",
+          "raw_status": "Current",
+          "count": 618688,
+          "share": 0.3524697287,
+          "target_use": "제외"
+        },
+        {
+          "rank": 3,
+          "status": "Charged Off",
+          "raw_status": "Charged Off",
+          "count": 217366,
+          "share": 0.1238345257,
+          "target_use": "y=1"
+        },
+        {
+          "rank": 4,
+          "status": "Late 31–120d",
+          "raw_status": "Late (31-120 days)",
+          "count": 9840,
+          "share": 0.0056058985,
+          "target_use": "제외"
+        },
+        {
+          "rank": 5,
+          "status": "Grace Period",
+          "raw_status": "In Grace Period",
+          "count": 6049,
+          "share": 0.0034461463,
+          "target_use": "제외"
+        },
+        {
+          "rank": 6,
+          "status": "Late 16–30d",
+          "raw_status": "Late (16-30 days)",
+          "count": 1620,
+          "share": 0.0009229223,
+          "target_use": "제외"
+        },
+        {
+          "rank": 7,
+          "status": "Issued",
+          "raw_status": "Issued",
+          "count": 1258,
+          "share": 0.0007166891,
+          "target_use": "제외"
+        },
+        {
+          "rank": 8,
+          "status": "Policy FP",
+          "raw_status": "Does not meet the credit policy. Status:Fully Paid",
+          "count": 1223,
+          "share": 0.0006967494,
+          "target_use": "y=0"
+        },
+        {
+          "rank": 9,
+          "status": "Policy CO",
+          "raw_status": "Does not meet the credit policy. Status:Charged Off",
+          "count": 460,
+          "share": 0.0002620644,
+          "target_use": "y=1"
+        },
+        {
+          "rank": 10,
+          "status": "Default",
+          "raw_status": "Default",
+          "count": 268,
+          "share": 0.000152681,
+          "target_use": "민감도 y=1"
+        }
+      ],
+      "resolved_share_by_year": [
+        {
+          "issue_year": 2013,
+          "resolved_share": 1.0,
+          "unresolved_share": 0.0,
+          "interpretation": "사실상 전부 확정"
+        },
+        {
+          "issue_year": 2014,
+          "resolved_share": 0.999936,
+          "unresolved_share": 0.000064,
+          "interpretation": "사실상 전부 확정"
+        },
+        {
+          "issue_year": 2015,
+          "resolved_share": 0.956432,
+          "unresolved_share": 0.043568,
+          "interpretation": "일부 Current 잔존"
+        },
+        {
+          "issue_year": 2016,
+          "resolved_share": 0.927731,
+          "unresolved_share": 0.072269,
+          "interpretation": "일부 Current 잔존"
+        },
+        {
+          "issue_year": 2017,
+          "resolved_share": 0.708063,
+          "unresolved_share": 0.291937,
+          "interpretation": "선택편향 증가"
+        },
+        {
+          "issue_year": 2018,
+          "resolved_share": 0.397015,
+          "unresolved_share": 0.602985,
+          "interpretation": "결과확정 표본이 소수"
+        },
+        {
+          "issue_year": 2019,
+          "resolved_share": 0.145643,
+          "unresolved_share": 0.854357,
+          "interpretation": "결과확정 표본이 매우 적음"
+        },
+        {
+          "issue_year": 2020,
+          "resolved_share": 0.029162,
+          "unresolved_share": 0.970838,
+          "interpretation": "최종상태 모델에 부적합"
+        }
+      ],
+      "data_corrections": [
+        {
+          "order": 1,
+          "check": "CSV 행 수",
+          "evidence": "파서상 1,755,295행 중 설명 메타행 1개; 실제 대출 1,755,294건",
+          "action": "id 형식과 필수열로 메타행 제거 후 타입 변환"
+        },
+        {
+          "order": 2,
+          "check": "정책미충족 상태",
+          "evidence": "Fully Paid 별칭 1,223건, Charged Off 별칭 460건",
+          "action": "저장소 규칙대로 본 상태와 합쳐 y 매핑"
+        },
+        {
+          "order": 3,
+          "check": "FICO 구간 폭",
+          "evidence": "strict 표본: high-low=4가 1,117,380건, 5가 191건, 30은 0건",
+          "action": "평균 파생은 유지 가능하나 30점 설명 삭제"
+        },
+        {
+          "order": 4,
+          "check": "공동신청 규모",
+          "evidence": "Joint App 126,357건, 전체 실제 대출의 7.20%",
+          "action": "15개 전용열 포함/제외 challenger 비교"
+        },
+        {
+          "order": 5,
+          "check": "희소 사건 4열",
+          "evidence": "양수 사건 777~5,406건",
+          "action": "완전 상수와 분리하고 ablation 전 자동 제외 금지"
+        },
+        {
+          "order": 6,
+          "check": "T2 결측률",
+          "evidence": "strict 표본에서 11개 동시수집 블록 결측률 45.59%",
+          "action": "NaN 보존 후 시간·수집제도 프록시 여부 점검"
+        },
+        {
+          "order": 7,
+          "check": "중복 금액 변수",
+          "evidence": "loan_amnt~funded_amnt 상관 0.999686; funded_amnt~funded_amnt_inv 0.999136",
+          "action": "XGB에는 필수 제거 아님; full/lean 모델로 계산량·해석 비교"
+        }
+      ],
+      "preprocessing_changes": [
+        {
+          "priority": 1,
+          "area": "T1 결측",
+          "existing": "중앙값·최빈값 대체",
+          "recommendation": "수치 NaN, 범주 Missing 또는 native missing을 기본선으로 유지",
+          "validation": "대체 모델과 시간 외 logloss·Sharpe 비교"
+        },
+        {
+          "priority": 2,
+          "area": "T2 구조적 결측",
+          "existing": "결측더미 + 중앙값",
+          "recommendation": "NaN + 선택적 is_collected; 0 대체 금지",
+          "validation": "발행연도 프록시와 최근 코호트 성능 점검"
+        },
+        {
+          "priority": 3,
+          "area": "T3 사건없음형",
+          "existing": "D_X + X_masked",
+          "recommendation": "NaN + 의미가 검증된 has_event 플래그",
+          "validation": "0의 실제 의미와 수집시기 혼합 여부 점검"
+        },
+        {
+          "priority": 4,
+          "area": "스케일링",
+          "existing": "수치형 표준화",
+          "recommendation": "XGBoost tree booster에서는 생략",
+          "validation": "로지스틱 baseline은 별도 파이프라인"
+        },
+        {
+          "priority": 5,
+          "area": "로그·winsorize",
+          "existing": "금액형 로그 필수, 이상치 절단 검토",
+          "recommendation": "오류만 정정; 원본을 기본으로 파생 로그는 challenger",
+          "validation": "시간 외 성능과 SHAP 안정성 비교"
+        },
+        {
+          "priority": 6,
+          "area": "count 구간화",
+          "existing": "0/1/2+ 또는 이진화",
+          "recommendation": "원 count 보존; 이진 플래그는 추가 후보",
+          "validation": "정보 손실과 rare split 과적합 점검"
+        },
+        {
+          "priority": 7,
+          "area": "범주형",
+          "existing": "저카디널리티 OHE, addr_state target/frequency encoding",
+          "recommendation": "native categorical 대 train-fitted sparse OHE 비교",
+          "validation": "OOV, 희소범주, 모델 직렬화 재현성"
+        },
+        {
+          "priority": 8,
+          "area": "Target Encoding",
+          "existing": "고카디널리티 후보",
+          "recommendation": "기본 제외; 필요 시 train 내부 OOF만",
+          "validation": "동일행 target 사용 누수 검사"
+        },
+        {
+          "priority": 9,
+          "area": "다중공선성",
+          "existing": "대표변수 하나 선택",
+          "recommendation": "예측상 필수 제거 아님; full/lean ablation",
+          "validation": "계산량, importance 분산, Validation Sharpe"
+        },
+        {
+          "priority": 10,
+          "area": "공동신청·희소열",
+          "existing": "고결측·저분산으로 제외",
+          "recommendation": "기본 제외와 포함 challenger를 사전 정의",
+          "validation": "term·연도별 시간 외 개선 여부"
+        }
+      ],
+      "target_mapping": [
+        {
+          "order": 1,
+          "raw_status": "Fully Paid",
+          "normalized_status": "Fully Paid",
+          "count": 898522,
+          "y": "0",
+          "treatment": "주 분석 포함"
+        },
+        {
+          "order": 2,
+          "raw_status": "Policy: Fully Paid",
+          "normalized_status": "Fully Paid",
+          "count": 1223,
+          "y": "0",
+          "treatment": "주 분석 포함"
+        },
+        {
+          "order": 3,
+          "raw_status": "Charged Off",
+          "normalized_status": "Charged Off",
+          "count": 217366,
+          "y": "1",
+          "treatment": "주 분석 포함"
+        },
+        {
+          "order": 4,
+          "raw_status": "Policy: Charged Off",
+          "normalized_status": "Charged Off",
+          "count": 460,
+          "y": "1",
+          "treatment": "주 분석 포함"
+        },
+        {
+          "order": 5,
+          "raw_status": "Default",
+          "normalized_status": "Default",
+          "count": 268,
+          "y": "민감도 1",
+          "treatment": "주 분석 제외, 민감도 포함"
+        },
+        {
+          "order": 6,
+          "raw_status": "Current/Late/Grace/Issued",
+          "normalized_status": "미확정",
+          "count": 637455,
+          "y": "없음",
+          "treatment": "지도학습 제외"
+        }
+      ],
+      "split_comparison": [
+        {
+          "order": 1,
+          "method": "Stratified random baseline",
+          "partition": "Train",
+          "period": "전 기간 혼합",
+          "rows": 670542,
+          "default_rate": 0.194911,
+          "use": "기존 규칙 재현·디버깅"
+        },
+        {
+          "order": 2,
+          "method": "Stratified random baseline",
+          "partition": "Validation",
+          "period": "전 기간 혼합",
+          "rows": 223514,
+          "default_rate": 0.194909,
+          "use": "비교용"
+        },
+        {
+          "order": 3,
+          "method": "Stratified random baseline",
+          "partition": "Test",
+          "period": "전 기간 혼합",
+          "rows": 223515,
+          "default_rate": 0.194909,
+          "use": "시간 외 검증 아님"
+        },
+        {
+          "order": 4,
+          "method": "시간순 strict",
+          "partition": "Train",
+          "period": "2007-06~2016-07",
+          "rows": 670527,
+          "default_rate": 0.184975,
+          "use": "seasoning 영향 포함"
+        },
+        {
+          "order": 5,
+          "method": "시간순 strict",
+          "partition": "Validation",
+          "period": "2016-08~2017-07",
+          "rows": 209999,
+          "default_rate": 0.192439,
+          "use": "seasoning 영향 포함"
+        },
+        {
+          "order": 6,
+          "method": "시간순 strict",
+          "partition": "Test",
+          "period": "2017-08~2020-09",
+          "rows": 237045,
+          "default_rate": 0.225202,
+          "use": "최신 코호트 선택편향 큼"
+        },
+        {
+          "order": 7,
+          "method": "성숙도 + 시간순",
+          "partition": "Train",
+          "period": "~2015-11",
+          "rows": 483626,
+          "default_rate": 0.175386,
+          "use": "권장 주 분석"
+        },
+        {
+          "order": 8,
+          "method": "성숙도 + 시간순",
+          "partition": "Validation",
+          "period": "2015-12~2016-09",
+          "rows": 165067,
+          "default_rate": 0.160438,
+          "use": "Sharpe threshold 선택"
+        },
+        {
+          "order": 9,
+          "method": "성숙도 + 시간순",
+          "partition": "Test",
+          "period": "2016-10~2017-09",
+          "rows": 165928,
+          "default_rate": 0.16292,
+          "use": "최종 1회 검증"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "src_csv",
+      "label": "lending_club_2020_train.csv 전체본",
+      "path": "data/lending_club_2020_train.csv",
+      "query": {
+        "description": "수치는 pandas chunk 전수 프로파일에서 계산했습니다. 아래 DuckDB 호환 SQL은 동일 원본에서 대출이 아닌 메타행을 제외한 분석 모수를 재현합니다.",
+        "engine": "DuckDB",
+        "language": "sql",
+        "sql": "SELECT *\nFROM read_csv_auto('data/lending_club_2020_train.csv', header = true, all_varchar = true, ignore_errors = true)\nWHERE regexp_matches(id, '^[0-9]+$')"
+      }
+    },
+    {
+      "id": "src_workbook",
+      "label": "lending_club_변수분류_류성환.xlsx_v2.numbers"
+    },
+    {
+      "id": "src_repo",
+      "label": "저장소 방법론 규칙과 의사결정 로그",
+      "path": "outputs/reports/decision_log.md"
+    },
+    {
+      "id": "src_method",
+      "label": "첨부 변수 가이드와 XGBoost·scikit-learn 공식 문서 종합",
+      "href": "https://xgboost.readthedocs.io/en/stable/",
+      "query": {
+        "description": "보고서 snapshot에 수록한 전처리 검토표를 우선순위 순으로 조회합니다.",
+        "engine": "Artifact snapshot SQL",
+        "language": "sql",
+        "sql": "SELECT priority, area, existing, recommendation, validation\nFROM preprocessing_changes\nORDER BY priority"
+      }
+    },
+    {
+      "id": "src_xgb_missing",
+      "label": "XGBoost FAQ — Missing values",
+      "href": "https://xgboost.readthedocs.io/en/stable/faq.html"
+    },
+    {
+      "id": "src_xgb_categorical",
+      "label": "XGBoost — Categorical Data",
+      "href": "https://xgboost.readthedocs.io/en/stable/tutorials/categorical.html"
+    },
+    {
+      "id": "src_xgb_parameters",
+      "label": "XGBoost Parameters",
+      "href": "https://xgboost.readthedocs.io/en/stable/parameter.html"
+    },
+    {
+      "id": "src_sklearn_calibration",
+      "label": "scikit-learn — Probability calibration",
+      "href": "https://scikit-learn.org/stable/modules/calibration.html"
+    },
+    {
+      "id": "src_sklearn_scaling",
+      "label": "scikit-learn — Feature scaling",
+      "href": "https://scikit-learn.org/stable/auto_examples/preprocessing/plot_scaling_importance.html"
+    }
+  ],
+  "package_info": {
+    "audience": "technical",
+    "report_type": "XGBoost preprocessing and training methodology guide",
+    "chart_map": [
+      {
+        "section": "전체 데이터 범위",
+        "question": "어떤 loan_status가 얼마나 존재하는가?",
+        "family": "Comparison",
+        "type": "bar",
+        "fields": "status, count",
+        "takeaway": "Current가 35.25%라 이진 타겟에서 제외가 필요함"
+      },
+      {
+        "section": "Seasoning 편향",
+        "question": "발행연도별 결과 확정 비중은 어떻게 달라지는가?",
+        "family": "Trend",
+        "type": "line",
+        "fields": "issue_year, resolved_share",
+        "takeaway": "최신 코호트의 최종상태 표본은 강하게 선택됨"
+      }
+    ]
+  }
+}
