@@ -1,6 +1,6 @@
 """변수 전처리 방식(결측치 처리 규칙) 검증 분석.
 
-outputs/reports/preprocessing_validation.md 에 실린 표를 전부 재생성한다.
+outputs/reports/preprocessing_validation_kgj.md 에 실린 표를 전부 재생성한다.
 문서의 숫자를 검증하거나 시트가 개정된 뒤 다시 계산할 때 이 스크립트를 돌린다.
 
 검증 대상은 data/processed/lending_club_변수분류_류성환.xlsx_v2.numbers 에 정리된

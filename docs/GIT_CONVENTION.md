@@ -12,6 +12,7 @@
 - **새 feature 브랜치를 만들기 전에는 반드시 `main`을 최신으로 pull 받는다**
   (`git checkout main && git pull origin main` 후 새 브랜치 생성). 오래된 `main` 기준으로
   작업하면 나중에 PR에서 충돌이 발생하거나, 이미 반영된 남의 작업을 놓칠 수 있다.
+- 브랜치가 아니라 **파일 이름**에 이니셜을 붙일지는 7번을 따른다 (전부 붙이는 것이 아니다).
 
 ## 2. 커밋 메시지 규칙
 형식: `Type: Description (#IssueNumber)`
@@ -74,19 +75,44 @@ GitHub의 Branch protection rule/Ruleset 기능(`main`에 직접 push 금지, �
 1. `main`을 최신으로 pull한 뒤, **같은 지점에서** 후보 브랜치를 여러 개 분기한다.
    ```bash
    git checkout main && git pull origin main
-   git checkout -b experiment/#12-threshold-optA-gwj
+   git checkout -b experiment/#12-threshold-optA-kgj
    # 커밋...
    git checkout main
-   git checkout -b experiment/#12-threshold-optB-gwj
+   git checkout -b experiment/#12-threshold-optB-kgj
    ```
 2. 여러 브랜치를 동시에 켜두고 비교하고 싶으면 `git worktree`로 폴더를 분리해서 각 브랜치를
    독립적으로 체크아웃할 수 있다.
    ```bash
-   git worktree add ../team-project-optA experiment/#12-threshold-optA-gwj
-   git worktree add ../team-project-optB experiment/#12-threshold-optB-gwj
+   git worktree add ../team-project-optA experiment/#12-threshold-optA-kgj
+   git worktree add ../team-project-optB experiment/#12-threshold-optB-kgj
    ```
 3. 각 브랜치는 PR로 올리되, PR 본문에 Sharpe Ratio 등 핵심 지표를 비교 표로 남긴다.
    `outputs/reports/decision_log.md`에도 동일한 비교 내용을 기록해 근거를 남긴다.
 4. 지표를 비교해 가장 나은 브랜치 하나만 권재가 승인·**Squash and Merge**한다 (3번 프로세스와 동일).
 5. 나머지 브랜치의 PR은 merge하지 않고 close하며, 브랜치는 삭제한다 (참고 가치가 있으면 팀 합의
    하에 남겨둔다).
+
+## 7. 파일명 규칙 — 이니셜을 언제 붙이나
+
+이니셜의 목적은 "누가 썼는지" 표시가 아니다. 그건 `git log`가 이미 알려준다.
+**여러 명이 같은 주제를 각자 브랜치에서 동시에 쓸 때, 파일명이 겹쳐 머지 충돌이 나는 것을 막는 것**이
+목적이다. 따라서 겹칠 일이 없는 파일에는 붙이지 않는다.
+
+| 파일 종류 | 이니셜 | 예 |
+| --- | --- | --- |
+| 개인 분석·검증·리뷰 문서 (여러 명이 같은 주제로 각자 작성) | **붙인다** | `preprocessing_validation_kgj.md`, `preprocessing_review_jh.md` |
+| 팀 단일 원본 문서 (하나만 존재해야 하는 문서) | 붙이지 않는다 | `decision_log.md`, `AGENTS.md`, `macro_cpi.md` |
+| 코드 (`src/**`) | 붙이지 않는다 | `preprocessing_validation.py` |
+| 데이터 파일 (`data/**`) | 붙이지 않는다 | `macro_cpi_monthly_*.csv` — 수집자는 짝이 되는 `.source.md`에 기록 |
+
+- 형식은 **접미사 + 소문자**로 통일한다: `{주제}_{이니셜}.md`. 브랜치에 쓰는 이니셜과 같은 값을 쓴다.
+  접미사여야 알파벳 정렬 시 같은 주제끼리 묶인다.
+- **팀 단일 원본에는 붙이지 않는다.** 붙이면 "누구 버전이 진짜냐"가 생긴다. 단일 원본을 고칠 때는
+  자기 이름의 파일을 새로 만들지 말고, 기존 파일을 수정하는 PR을 올린다.
+- **코드에는 붙이지 않는다.** 스크립트는 개인 견해가 아니라 재현 도구다. 같은 기능의 스크립트가
+  이니셜별로 여러 개 생기면 어느 것이 정본인지 알 수 없다.
+- 개인 문서라도 팀 논의를 거쳐 결론이 확정되면, 그 결론은 `decision_log.md`(단일 원본)에 옮겨 적는다.
+  개인 문서는 근거·과정 기록으로 남는다.
+
+> 예외: `data/processed/variable_dictionary_byGJ.xlsx`는 단일 원본인데도 이니셜이 붙어 있다.
+> 이미 여러 문서·코드가 이 이름을 참조하고 있어 그대로 두지만, 새로 만드는 파일은 위 규칙을 따른다.
