@@ -10,6 +10,10 @@ src/analysis/AGENTS.md의 Sharpe Ratio 기반 의사결정 규칙이 적용되�
 - loan_status가 Current / Late (16-30 days) / Late (31-120 days)인 행 제외
 - "Does not meet the credit policy. Status:*" 는 접두어를 떼고 동일하게 취급
 
+⚠️ 입력이 9,000건 표본이다. 모든 분석은 원본 전수로 한다는 규칙(AGENTS.md 「데이터 규모」)의
+예외로, **문서에 이미 실린 표를 그대로 재현하기 위해** 표본 경로를 유지한다.
+거시지표를 실제로 모형에 쓰기로 하면 그때 전수로 바꾸고 문서 수치도 함께 재산출해야 한다.
+
 실행:
     python src/analysis/macro_indicator_screening.py
 """
