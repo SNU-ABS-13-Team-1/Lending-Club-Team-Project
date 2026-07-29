@@ -13,3 +13,8 @@ share/
 
 # 에디터 로컬 설정 — 개인 환경이므로 공유하지 않음
 .vscode/
+
+# 규칙 기반 라벨링 스크립트의 산출물 — label_pre_post_by_rule.py로 언제든 재생성된다.
+# 변수 사전/라벨의 단일 원본은 variable_dictionary_byGJ.xlsx 하나뿐이므로
+# (decision_log.md #9), 대조용 파생물을 함께 추적해 원본이 둘로 보이게 하지 않는다.
+data/processed/variable_labels_rule_based.xlsx
