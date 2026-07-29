@@ -61,7 +61,17 @@ class RandomSeed:
 
 @dataclass(frozen=True)
 class RiskFreeRate:
+    """무위험수익률 설정.
+
+    2026-07-29 회의에서 참고논문 방식이 확정됐다(decision_log.md #18) — 거절한 대출의 자본은
+    '발행시점(issue_d)에 대출 만기와 만기를 맞춘 미국채'에 투자했다고 가정한다.
+    **고정 상수가 아니므로 value는 계속 None이다.** 미확정이라서 비어 있는 것이 아니라,
+    채울 단일 값이 존재하지 않는 방식이다. issue_d × term 매칭 로직으로 처리한다.
+    """
+
     value: float | None
+    method: str | None = None
+    series: dict[int, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -125,7 +135,11 @@ def load_config(config_path: Path | None = None) -> Config:
         paths=paths,
         split=split,
         random_seed=random_seed,
-        risk_free_rate=RiskFreeRate(value=raw["risk_free_rate"]["value"]),
+        risk_free_rate=RiskFreeRate(
+            value=raw["risk_free_rate"]["value"],
+            method=raw["risk_free_rate"].get("method"),
+            series=raw["risk_free_rate"].get("series"),
+        ),
         _raw=raw,
     )
 
@@ -142,7 +156,9 @@ if __name__ == "__main__":
     print("\n[seed]")
     print(f"  default={cfg.random_seed.default}  안정성검증범위={cfg.random_seed.stability_check_range}")
     print("\n[무위험수익률]")
-    try:
-        print(f"  value={cfg.require('risk_free_rate.value')}")
-    except RuntimeError as e:
-        print(f"  (미확정) {e}")
+    print(f"  method={cfg.risk_free_rate.method}  series={cfg.risk_free_rate.series}")
+    if cfg.risk_free_rate.value is None:
+        print("  value=None — 방식은 확정됐고(decision_log.md #18) 고정 상수가 아니라서 비어 있다.")
+        print("           issue_d × term 매칭으로 처리한다. require()로 읽어 쓰지 않는다.")
+    else:
+        print(f"  value={cfg.risk_free_rate.value}")
