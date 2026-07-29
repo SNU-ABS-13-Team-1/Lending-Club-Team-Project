@@ -1,6 +1,17 @@
 # 프로젝트 공통 설정
 # 팀에서 아직 확정하지 않은 항목은 값을 임의로 채우지 말고 TODO로 남겨둔다 (AGENTS.md 참고).
 # 경로는 저장소 루트 기준 상대경로만 쓴다 — 팀원마다 클론 위치가 다르므로 절대경로 금지.
+#
+# 읽는 법: 이 파일을 직접 파싱하지 말고 `src/utils/config.py`의 load_config()를 쓴다.
+#   from utils.config import load_config
+#   cfg = load_config()          # 경로는 절대경로로 해석되고, split 합계 검증도 함께 수행됨
+# 확인: python src/utils/config.py 를 실행하면 해석된 값이 출력된다.
+#
+# 적용 범위: 모형 학습·threshold 결정 등 **본 파이프라인** 코드가 대상이다.
+#   src/analysis/의 탐색·검증용 비교 스크립트(preprocessing_validation.py,
+#   missing_scheme_comparison.py, term_split_comparison.py, t2_contribution_reassessment.py)는
+#   6:2:2가 아닌 자체 2분할과 자체 seed 루프를 쓴다 — 처리 방식 간 AUC 상대 비교가 목적이라
+#   의도된 차이이며, 이 설정에 맞추지 않는다.
 
 paths:
   data_raw: data/raw

@@ -25,6 +25,10 @@ graph LR
         B3["거시지표 수집<br/>fetch_macro_*.py<br/>(다운로드+검증+저장)"]
     end
 
+    subgraph VAL["src/analysis — 재현·검증 (본 파이프라인과 별개)"]
+        V1["preprocessing_validation.py<br/>t2_contribution_reassessment.py<br/>term_split_comparison.py<br/>missing_scheme_comparison.py<br/>macro_indicator_screening.py"]
+    end
+
     subgraph PROC["data/processed"]
         C1["변수 사전/라벨 산출물<br/>variable_dictionary_byGJ.xlsx"]
         C2["모델링용 처리 데이터"]
@@ -59,10 +63,19 @@ graph LR
     D3 --> E1 --> F2
     D3 --> F1
 
+    A1 -.-> V1
+    C1 -.-> V1
+    C3 -.-> V1
+    V1 -.검증 결과.-> F1
+
     classDef planned stroke-dasharray: 4 3;
     class P2,P3,P4,P5,P6,P7,C2 planned;
 ```
 
+> `VAL` 그룹은 **본 파이프라인이 아니다** — 문서에 실린 표를 다시 만드는 재현·검증 스크립트이며,
+> 원본/산출물을 읽어 `outputs/`에 근거를 남기는 곁가지다. `config.yaml`의 6:2:2를 따르지 않고
+> 자체 분할을 쓴다 (`AGENTS.md`의 코드 색인 ② 참고).
+>
 > 실선 노드 = 이미 구현/확정된 단계, 점선 노드 = 아직 팀에서 확정하지 않은 계획 단계.
 > `P2`~`P7`의 순서는 예시이며 실제 처리 순서·세부 방식은 팀 확정 필요 (`src/preprocessing/AGENTS.md` 참고).
 > 거시지표 **수집**(`B3`)은 완료됐으나 대출 데이터와의 **결합**(`P7`)은 미확정이다 —
