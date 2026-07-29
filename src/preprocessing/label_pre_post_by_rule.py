@@ -9,10 +9,15 @@ variable_dictionary_byGJ.xlsx에 is_pre_approval 라벨을 규칙 기반으로 �
   대출 발행(origination) 시점에 함께 확정되며, 신규 심사 대상 데이터에도 이미 채워져 들어오므로
   사전 변수로 간주한다 (근거: `src/preprocessing/AGENTS.md` 참고).
 """
+from pathlib import Path
+
 import pandas as pd
 
-SRC = "variable_dictionary_byGJ.xlsx"
-DST = "variable_labels_rule_based.xlsx"
+# 다른 스크립트와 동일하게 저장소 루트 기준으로 경로를 잡는다 — 어느 디렉터리에서 실행해도 동작한다.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PROCESSED = REPO_ROOT / "data" / "processed"
+SRC = PROCESSED / "variable_dictionary_byGJ.xlsx"
+DST = PROCESSED / "variable_labels_rule_based.xlsx"
 SHEET = "Sheet1"
 
 # SRC에는 세 AI가 매긴 라벨과 그 합의 결과(is_pre_approval)가 이미 들어 있다.
@@ -57,7 +62,7 @@ df["is_pre_approval"] = df["LoanStatNew"].apply(
 df.to_excel(DST, index=False)
 
 counts = df["is_pre_approval"].value_counts().sort_index()
-print(f"저장 완료: {DST}")
+print(f"저장 완료: {DST.relative_to(REPO_ROOT)}")
 print(f"전체 변수 수: {len(df)}")
 print(f"사후(0) 변수 개수: {counts.get(0, 0)}")
 print(f"사전(1) 변수 개수: {counts.get(1, 0)}")

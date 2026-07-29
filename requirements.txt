@@ -1,0 +1,27 @@
+# 실행 환경 고정 (2026-07-29 기준)
+#
+# outputs/reports/ 의 수치는 아래 버전 조합에서 산출됐다. 재현 시 이 버전을 쓴다.
+# Python 3.13 기준 — pandas 3.x에서는 동작이 달라질 수 있으므로 상한을 걸어 둔다.
+#
+# 설치:
+#   pip install -r requirements.txt
+#
+# 주의: macOS 시스템 python3(3.14)에는 scikit-learn/xgboost가 없어 분석 스크립트가
+# ImportError로 중단된다. 별도 가상환경(conda/venv)을 만들어 여기에 설치할 것.
+
+# --- 공통 (모든 스크립트) ---
+pandas>=2.3,<3.0
+numpy>=2.3,<3.0
+
+# --- src/preprocessing/fetch_macro_*.py (FRED 다운로드) ---
+requests>=2.32
+
+# --- 변수 사전 xlsx 입출력 (label_pre_post_by_rule.py 등) ---
+openpyxl>=3.1
+
+# --- config/config.yaml 로딩 (src/utils/config.py) ---
+PyYAML>=6.0
+
+# --- src/analysis/ 모델 비교 스크립트 (--with-model 옵션 포함) ---
+scikit-learn>=1.7,<2.0
+xgboost>=3.0,<4.0

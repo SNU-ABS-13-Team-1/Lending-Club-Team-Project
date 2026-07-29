@@ -7,3 +7,14 @@ __pycache__/
 
 # 100MB 제한 초과 — git에 올리지 않음
 data/raw/lending_club_2020_train.csv
+
+# 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
+share/
+
+# 에디터 로컬 설정 — 개인 환경이므로 공유하지 않음
+.vscode/
+
+# 규칙 기반 라벨링 스크립트의 산출물 — label_pre_post_by_rule.py로 언제든 재생성된다.
+# 변수 사전/라벨의 단일 원본은 variable_dictionary_byGJ.xlsx 하나뿐이므로
+# (decision_log.md #9), 대조용 파생물을 함께 추적해 원본이 둘로 보이게 하지 않는다.
+data/processed/variable_labels_rule_based.xlsx
