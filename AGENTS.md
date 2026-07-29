@@ -108,6 +108,7 @@
 | --- | --- |
 | **팀이 내린 모든 의사결정과 근거** (가장 중요) | `outputs/reports/decision_log.md` |
 | 최종 보고서 목차(안) | `outputs/reports/decision_log.md` 상단 |
+| 회의에서 결정할 안건(선택지·근거·권고안) | `outputs/reports/meeting_YYYYMMDD.md` |
 | 아직 확정되지 않은 미결 사항 | 각 문서의 "팀 협의 필요"·"미확정" 표기 |
 
 > `decision_log.md`를 먼저 읽지 않으면 이미 결정된 사항을 다시 논의하거나,
