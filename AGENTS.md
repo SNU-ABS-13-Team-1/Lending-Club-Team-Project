@@ -158,7 +158,7 @@
 
 | 주제 | 문서 |
 | --- | --- |
-| IRR·실현수익률 정의 (부도 시 손실 처리) | `irr_vs_int_rate_definition.md` |
+| ~~IRR·실현수익률 정의~~ → **과거 검토 자료**. 현행 정의는 `decision_log.md` #18 | `irr_vs_int_rate_definition.md` |
 | 거시경제지표 선택 검토 (배경·탐색분석·미결 판단) | `macro_indicator_selection.md` |
 | 거시지표 개별 수집 기록 | `macro_{지표}.md` — 출처·검증·발표시차·개정 이슈 |
 | 변수 전처리 방식 검증 (결측 티어 T0~T3, seasoning 편향) | `preprocessing_validation_kgj.md` |
@@ -238,7 +238,7 @@
 | `docs/architecture.md` | 파이프라인 구조 (Mermaid) |
 | `config/config.yaml` | 경로·분할 비율·seed 공통 설정 (`src/utils/config.py`로 읽는다) |
 | `requirements.txt` | 실행 환경 버전 고정 |
-| `notebooks/` | 실습 템플릿·사전 탐색 (참고용, 산출물 아님) |
+| `notebooks/` | 실습 템플릿·사전 탐색 (참고용, 산출물 아님). ⚠️ `LendingClub_실습_v2.ipynb`는 **교육용 baseline** — rf 고정 5%, 정상=`int_rate`, 부도=0을 쓴다. 셋 다 현행 방법론이 아니다(#18). **방법론 근거로 인용 금지**, 코드 구조만 참고 |
 | `share/` | 팀 공유용 PDF 등 — **git 미추적**(`.gitignore`), 로컬 전용 |
 
 ## 공통 원칙

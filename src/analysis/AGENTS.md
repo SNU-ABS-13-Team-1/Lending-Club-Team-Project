@@ -65,5 +65,7 @@
 ## 참고
 - **확정 사항의 원본은 `outputs/reports/decision_log.md`다.** 이 문서와 어긋나면 decision_log가 우선이고, 이 문서를 고친다.
 - 배경/근거: `docs/references/legacy-분석에이전트-CLAUDE.md` (⚠️ 과거 폴더 구조 기준이라 문서 내 경로 상당수가 현존하지 않는다 — 방법론만 참고할 것)
-- 파이프라인 구조적 템플릿: `notebooks/LendingClub_실습_v2.ipynb`
+- 파이프라인 **코드 구조** 템플릿: `notebooks/LendingClub_실습_v2.ipynb`
+  - ⚠️ **교육용 baseline이다.** rf 고정 5% · 정상상환=`int_rate` · 부도=0을 쓰는데 **셋 다 현행 방법론이 아니다**(#18).
+    셀 구성·함수 분리 같은 **코드 구조만** 참고하고, 수익률·rf 정의는 절대 가져오지 않는다.
 - 실행 환경: 저장소 루트 `requirements.txt` (scikit-learn·xgboost 필요 — 시스템 python에는 없다)
