@@ -36,6 +36,7 @@
 from __future__ import annotations
 
 import hashlib
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -43,7 +44,7 @@ import pandas as pd
 try:
     from preprocessing.preprocessor import (
         DEFAULT_SCHEME, SPLIT_SCHEMES, build_feature_table, scheme_ratios,
-        split_6_2_2, split_7_3,
+        split_6_2_2, split_train_validation,
     )
     from utils.config import load_config, repo_root
 except ModuleNotFoundError:  # pragma: no cover
@@ -52,16 +53,24 @@ except ModuleNotFoundError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from preprocessing.preprocessor import (
         DEFAULT_SCHEME, SPLIT_SCHEMES, build_feature_table, scheme_ratios,
-        split_6_2_2, split_7_3,
+        split_6_2_2, split_train_validation,
     )
     from utils.config import load_config, repo_root
 
 
-#: 체계별 분할 함수. `"7_3"`은 Test 칸을 만들지 않는다 (#30).
-SPLIT_FUNCTIONS = {"6_2_2": split_6_2_2, "7_3": split_7_3}
+#: 체계별 분할 함수. `"7_3"`(#30)·`"8_2"`(#32)는 Test 칸을 만들지 않는다.
+SPLIT_FUNCTIONS = {
+    "6_2_2": split_6_2_2,
+    "7_3": partial(split_train_validation, scheme="7_3"),
+    "8_2": partial(split_train_validation, scheme="8_2"),
+}
 
 #: 체계별 split 이름 — 출처 카드·요약 출력 순서를 결정한다.
-SPLIT_NAMES = {"6_2_2": ("train", "validation", "test"), "7_3": ("train", "validation")}
+SPLIT_NAMES = {
+    "6_2_2": ("train", "validation", "test"),
+    "7_3": ("train", "validation"),
+    "8_2": ("train", "validation"),
+}
 
 
 def manifest_path(seed: int, scheme: str = DEFAULT_SCHEME) -> Path:
@@ -134,20 +143,25 @@ def write_source_card(path: Path, summary: dict) -> Path:
     scheme = summary.get("scheme", DEFAULT_SCHEME)
     tr, va, te = scheme_ratios(scheme)
 
-    if scheme == "7_3":
-        title = "**Train/Validation 7:3 분할 정의**"
+    if not te:
+        # Test 칸이 없는 체계 — `"7_3"`(#30) · `"8_2"`(#32). 비율은 scheme_ratios에서 오므로
+        # 체계를 늘려도 이 분기를 고치지 않는다.
+        label = scheme.replace("_", ":")
+        issue = "#32" if scheme == "8_2" else "#30"
+        title = f"**Train/Validation {label} 분할 정의**"
         how = (
             f"- 비율: train {tr} / validation {va} — **Test 칸이 없다**\n"
             "- 방법: `train_test_split` 한 번. `stratify`를 건다(부도율 16.2%).\n"
             "- **최종 Test는 별도 파일**이다 — `data/raw/lending_club_2020_test_2nd.csv`\n"
-            "  (481,833건, train 원본과 `id` 교집합 0건). `decision_log.md` #30."
+            f"  (481,833건, train 원본과 `id` 교집합 0건). `decision_log.md` {issue}."
         )
         test_note = (
             "## ⚠️ Test 취급\n"
             "- 이 매니페스트에는 **Test 칸이 없다.** `unlock_test=True`를 주면 예외가 난다.\n"
             "- 최종 평가는 `loader.second_test_path()`의 2nd Test로 **단 1회** 한다.\n"
-            "- K=50 반복은 `resplit_train_validation(..., scheme=\"7_3\")`을 쓴다 — 표본 전량을\n"
-            "  70/30으로 다시 가르며, Test는 애초에 이 표본 밖이라 흔들리지 않는다."
+            f"- K=50 반복은 `resplit_train_validation(..., scheme=\"{scheme}\")`을 쓴다 —\n"
+            f"  표본 전량을 {tr:.0%}/{va:.0%}로 다시 가르며, Test는 애초에 이 표본 밖이라\n"
+            "  흔들리지 않는다."
         )
     else:
         title = "**Train/Validation/Test 6:2:2 분할 정의**"
@@ -197,7 +211,7 @@ seed만 공유하면 분할이 재현되지 않을 수 있다 — `train_test_sp
   → 팀원끼리 같은 분할을 쓰는지 이 값으로 대조한다.
     `python src/preprocessing/export_split_manifest.py --scheme {scheme} --verify`
 - 파일 SHA-256: `{sha}`
-- 부도율이 세 split에서 소수점 둘째 자리까지 맞는지 확인한다(`stratify` 정상 동작 근거).
+- 부도율이 {len(SPLIT_NAMES[scheme])}개 split에서 소수점 둘째 자리까지 맞는지 확인한다(`stratify` 정상 동작 근거).
 
 ## 쓰는 법
 ```python
@@ -207,7 +221,7 @@ X, y, meta = build_feature_table()
 parts = split_from_manifest(X, y, meta, scheme="{scheme}")
 X_tr, y_tr, meta_tr = parts["train"]
 ```
-`split_6_2_2()`/`split_7_3()`(seed 기반)를 직접 쓰지 말고 이 함수를 쓴다.
+`split_6_2_2()`/`split_train_validation()`(seed 기반)를 직접 쓰지 말고 이 함수를 쓴다.
 
 {test_note}
 """,
@@ -261,8 +275,8 @@ def main() -> None:
     for name in SPLIT_NAMES[scheme]:
         print(f"  {name:11s} {summary['counts'].get(name, 0):>8,}건  "
               f"{summary['shares'].get(name, 0):>7}%  부도율 {summary['default_rate'].get(name, 0)}%")
-    if scheme == "7_3":
-        print("  test        (없음)  — 최종 Test는 lending_club_2020_test_2nd.csv (#30)")
+    if not scheme_ratios(scheme)[2]:
+        print("  test        (없음)  — 최종 Test는 lending_club_2020_test_2nd.csv (#30·#32)")
     print(f"\n  분할 체크섬 {summary['checksum']}")
 
     path = manifest_path(summary["seed"], scheme=scheme)

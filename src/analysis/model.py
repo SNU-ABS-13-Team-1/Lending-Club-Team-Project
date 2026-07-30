@@ -75,7 +75,26 @@ except ModuleNotFoundError:  # pragma: no cover
     from utils.config import load_config
 
 
-DEFAULT_N_FOLDS = 5
+#: OOF fold 수 — **모든 호출부가 이 기본값 하나를 공유한다** (#32, 2026-07-31).
+#:
+#: `compute_oof()`는 `n_folds`를 인자로 받지만, 호출부 5곳(`sharpe_optimizer`·
+#: `final_evaluation`·`second_test_evaluation`·`oof_diagnostics`·이 모듈의 `__main__`)은
+#: **일부러 넘기지 않는다.** 앞의 셋이 서로 다른 fold 수를 쓰면 K=50에서 뽑은 승자를
+#: 다른 모델로 재현해 2nd Test에 적용하게 되는데, **예외가 나지 않아 조용히 틀린다.**
+#: 상수 하나를 공유하면 그 어긋남이 구조적으로 불가능해진다.
+#:
+#: 5 → 3으로 내린 근거 (8:2 · seed 0 실측, 이슈 #32):
+#:
+#: | k | fold AUC | 분위 인원 이탈 | ECE | Sharpe |
+#: | ---: | ---: | ---: | ---: | ---: |
+#: | 2 | 0.70696 | **0.904%p** ❌ | 0.535%p | 0.2046 |
+#: | 3 | 0.70928 | 0.479%p ✅ | 0.356%p | 0.2050 |
+#: | 5 | 0.71004 | 0.361%p ✅ | 0.330%p | 0.2051 |
+#:
+#: 진단 C-1의 이전 가능성 기준은 **분위 인원 이탈 0.60%p 이내**이며 k=2는 이를 위반한다
+#: (term 60m — 표본의 13.9%뿐이라 먼저 깨진다). k=3은 통과하면서 5-fold 대비 학습을
+#: 33% 줄인다. K=50 본실행 기준 82분 → 55분.
+DEFAULT_N_FOLDS = 3
 
 
 def default_params(seed: int | None = None) -> dict:

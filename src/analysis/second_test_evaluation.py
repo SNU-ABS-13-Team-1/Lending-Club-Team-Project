@@ -77,6 +77,7 @@ from analysis.sharpe_optimizer import (  # noqa: E402
 )
 from preprocessing.loader import second_test_path  # noqa: E402
 from preprocessing.preprocessor import (  # noqa: E402
+    SPLIT_SCHEMES,
     build_feature_table,
     resplit_train_validation,
 )
@@ -260,8 +261,8 @@ def main() -> None:
     ap.add_argument("--reinvest", default=HEADLINE_REINVEST, choices=["treasury", "cash"],
                     help="승자를 고르는 기준이 되는 재투자 가정 (기본: treasury — #18)")
     ap.add_argument("--min-k", type=int, default=50, help="이 K에 못 미치면 중단 (기본 50)")
-    ap.add_argument("--scheme", default="6_2_2", choices=["6_2_2", "7_3"],
-                    help="분할 체계 (기본 6_2_2). 7_3이 #30 확정 체계다.")
+    ap.add_argument("--scheme", default="6_2_2", choices=sorted(SPLIT_SCHEMES),
+                    help="분할 체계 (기본 6_2_2). 8_2가 #32 현행 체계다.")
     args = ap.parse_args()
     out_csv = (f"{OUT_CSV_STEM}.csv" if args.scheme == "6_2_2"
                else f"{OUT_CSV_STEM}_{args.scheme}.csv")

@@ -445,13 +445,32 @@ def load_pipeline_data() -> tuple:
     return X, y, meta, build_return_inputs()
 
 
-def repeat_output_path(scheme: str) -> Path:
-    """K=50 결과 CSV 경로. **체계마다 다른 파일**이라 서로 덮어쓰지 않는다 (#30).
+#: 파일명에 fold 수를 적지 않던 시절의 실행이 쓴 fold 수. 그때 만들어진
+#: `sharpe_repeat_k50.csv`·`sharpe_repeat_k50_7_3.csv`를 계속 찾을 수 있게 하는 값이다.
+LEGACY_N_FOLDS = 5
+
+
+def repeat_output_path(scheme: str, n_folds: int | None = None) -> Path:
+    """K=50 결과 CSV 경로. **체계·fold마다 다른 파일**이라 서로 덮어쓰지 않는다 (#30·#32).
 
     `"6_2_2"`는 기존 이름을 유지한다 — 그 파일은 **조기상환 보정 이전**(계약 현금흐름)
     실행 기록이라 지금 구현으로 다시 만들면 값이 달라진다. 섞어 인용하지 않는다.
+
+    ⚠️ **fold 수를 파일명에 넣는 이유가 재시작 로직 때문이다.** `repeat_full_search()`는
+    이미 있는 `(seed, reinvest, criterion)`을 건너뛰는데, fold 수는 그 키에 없다. 파일명이
+    같으면 5-fold로 돌린 행을 3-fold 실행이 "이미 계산됨"으로 건너뛰어 **두 fold의 결과가
+    한 파일에 섞인다.** 파일을 가르면 그 사고가 구조적으로 막힌다.
+
+    `LEGACY_N_FOLDS`(5)일 때만 접미사를 붙이지 않는다 — 그 이름으로 이미 만들어진 파일이
+    있기 때문이다. 현행 기본값은 3이므로 `..._8_2_3fold.csv`가 나온다.
     """
+    if n_folds is None:
+        from analysis.model import DEFAULT_N_FOLDS
+
+        n_folds = DEFAULT_N_FOLDS
     stem = "sharpe_repeat_k50" if scheme == "6_2_2" else f"sharpe_repeat_k50_{scheme}"
+    if n_folds != LEGACY_N_FOLDS:
+        stem += f"_{n_folds}fold"
     return repo_root() / "outputs" / f"{stem}.csv"
 
 
@@ -628,6 +647,11 @@ def parse_seed_spec(spec: str) -> list[int]:
 
 def run_repeat(seed_spec: str, scheme: str = "6_2_2") -> None:
     """`--repeat` 경로 — K회 반복을 돌리고 요약을 출력한다."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from preprocessing.preprocessor import scheme_ratios
+
     out_path = repeat_output_path(scheme)
     seeds = parse_seed_spec(seed_spec)
 
@@ -635,10 +659,10 @@ def run_repeat(seed_spec: str, scheme: str = "6_2_2") -> None:
     print(f"본 실행 — 분할체계 {scheme} · 재분할 K={len(seeds)}회 "
           f"(seed {seeds[0]}~{seeds[-1]}) × 랭킹기준 3종 × 재투자가정 2종")
     print("=" * 78)
-    if scheme == "7_3":
-        print("Test는 이 표본 밖(2nd Test 파일)이라 재분할해도 흔들리지 않는다 (#30).")
-    else:
+    if scheme_ratios(scheme)[2]:
         print("Test 20%는 열지 않는다 — Train+Validation 풀만 재분할한다(#18).")
+    else:
+        print("Test는 이 표본 밖(2nd Test 파일)이라 재분할해도 흔들리지 않는다 (#30·#32).")
     print(f"산출(덧붙임) → {out_path.name}\n")
 
     df = repeat_full_search(seeds, out_path, scheme=scheme)
@@ -664,12 +688,13 @@ def main() -> None:
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from analysis.realized_return import ReturnAssumptions, cash_reinvestment
+    from preprocessing.preprocessor import SPLIT_SCHEMES
 
     ap = argparse.ArgumentParser(description="Sharpe threshold 탐색")
     ap.add_argument("--repeat", metavar="SEEDS", default=None,
                     help="재분할 반복 실행 (예: '0-49'). 생략하면 매니페스트 분할 1회만 돈다.")
-    ap.add_argument("--scheme", default="6_2_2", choices=["6_2_2", "7_3"],
-                    help="분할 체계 (기본 6_2_2). 7_3은 Test를 별도 파일로 둔다 — #30")
+    ap.add_argument("--scheme", default="6_2_2", choices=sorted(SPLIT_SCHEMES),
+                    help="분할 체계 (기본 6_2_2). 7_3·8_2는 Test를 별도 파일로 둔다 — #30·#32")
     args = ap.parse_args()
 
     if args.repeat:

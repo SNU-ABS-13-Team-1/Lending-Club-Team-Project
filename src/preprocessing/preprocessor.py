@@ -164,7 +164,7 @@ def build_feature_table(
 
 
 # ---------------------------------------------------------------------------
-# 분할 체계 — 두 개가 공존한다
+# 분할 체계 — 셋이 공존한다
 # ---------------------------------------------------------------------------
 #: `{scheme: (train, validation, test)}`. **비율을 코드에 흩어 놓지 않는다.**
 #:
@@ -173,9 +173,17 @@ def build_feature_table(
 #: - `"7_3"`  — **1차 데이터 전량을 Train/Validation으로 쓰고 Test는 별도 파일**
 #:   (`lending_club_2020_test_2nd.csv`, 481,833건)로 삼는 체계(#30, 2026-07-31 확정).
 #:   6:2:2 대비 Train +16.7%(434,137 → 506,494) · Validation +50.0%(144,713 → 217,069).
+#: - `"8_2"`  — 7:3과 같이 Test를 별도 파일로 두되 Train을 더 준다(#32, 2026-07-31).
+#:   Train 578,850 / Validation 144,713. 7:3 대비 Train +14.3% · Validation −33.3%다 —
+#:   Validation이 6:2:2와 같은 크기로 돌아가므로 `τ*` 표본오차와 승자의 저주가 함께 커진다.
+#:   그 대가를 알고 고른 것이며 근거는 이슈 #32에 있다.
+#:
+#: ⚠️ 체계를 늘릴 때는 `SPLIT_FUNCTIONS`(`export_split_manifest.py`)도 함께 채운다 —
+#: 여기에만 추가하면 매니페스트를 만들 수 없다.
 SPLIT_SCHEMES: dict[str, tuple[float, float, float]] = {
     "6_2_2": (0.6, 0.2, 0.2),
     "7_3": (0.7, 0.3, 0.0),
+    "8_2": (0.8, 0.2, 0.0),
 }
 
 DEFAULT_SCHEME = "6_2_2"
@@ -202,21 +210,31 @@ def scheme_ratios(scheme: str) -> tuple[float, float, float]:
     return ratios
 
 
-def split_7_3(
+def split_train_validation(
     X: pd.DataFrame,
     y: pd.Series,
     meta: pd.DataFrame | None = None,
     seed: int | None = None,
+    scheme: str = "7_3",
 ) -> dict[str, tuple]:
-    """랜덤 7:3 분할 — **Test 칸이 없다** (#30).
+    """**Test 칸이 없는** 체계의 2분할 — `"7_3"`(#30)과 `"8_2"`(#32)가 여기로 온다.
 
-    1차 데이터(723,563건) 전량을 Train 70% / Validation 30%로 가른다. Test는 이 표본
-    안에서 떼지 않고 **별도 파일**(`loader.second_test_path()`)을 쓴다.
+    1차 데이터(723,563건) 전량을 Train/Validation으로 가른다. Test는 이 표본 안에서
+    떼지 않고 **별도 파일**(`loader.second_test_path()`)을 쓴다.
+
+    비율은 `scheme_ratios(scheme)`에서 온다 — **비율을 이 함수에 박지 않는다.** 체계를
+    늘릴 때 여기를 고치지 않아도 되게 하려는 것이다(#32에서 8:2를 넣을 때 `"7_3"`이
+    하드코딩돼 있어 실제로 걸렸던 부분이다).
 
     부도율 16.2%가 한쪽에 치우치지 않도록 `stratify`를 건다.
     """
     seed = load_config().random_seed.default if seed is None else seed
-    _, val_share, _ = scheme_ratios("7_3")
+    _, val_share, test_share = scheme_ratios(scheme)
+    if test_share:
+        raise ValueError(
+            f"'{scheme}'은 Test 칸이 있는 체계다({test_share:.0%}) — "
+            "split_train_validation()이 아니라 split_6_2_2()를 쓴다."
+        )
 
     keys = pd.Series(X.index, index=X.index)
     train_keys, val_keys = train_test_split(
@@ -284,7 +302,8 @@ def load_split_manifest(
     **임의로 seed 분할로 대체하지 않는다.** 조용히 다른 분할로 넘어가면 팀원 간 Test가
     어긋나는데 아무도 모르게 된다.
 
-    `scheme`은 `"6_2_2"` 또는 `"7_3"`이며 **파일이 다르다** — 서로 덮어쓰지 않는다.
+    `scheme`은 `SPLIT_SCHEMES`의 키(`"6_2_2"`·`"7_3"`·`"8_2"`)이며 **파일이 다르다** —
+    서로 덮어쓰지 않는다.
     """
     from preprocessing.export_split_manifest import manifest_path
 
@@ -393,8 +412,10 @@ def resplit_train_validation(
     | --- | --- | --- | --- |
     | `6_2_2` | 매니페스트의 비Test 80% | `0.2/(0.6+0.2)` = **0.25** | 434,137 / 144,713 |
     | `7_3` | **표본 전량**(Test 칸 없음) | `0.3/(0.7+0.3)` = **0.30** | 506,494 / 217,069 |
+    | `8_2` | **표본 전량**(Test 칸 없음) | `0.2/(0.8+0.2)` = **0.20** | 578,850 / 144,713 |
 
-    `7_3`에서도 Test가 흔들리지 않는다 — Test가 애초에 이 표본 밖(별도 파일)이기 때문이다(#30).
+    `7_3`·`8_2`에서도 Test가 흔들리지 않는다 — Test가 애초에 이 표본 밖(별도 파일)이기
+    때문이다(#30·#32).
     부도율이 16.2%로 치우칠 수 있어 `stratify`를 건다.
     """
     parts = split_from_manifest(X, y, meta, seed=manifest_seed, scheme=scheme)
