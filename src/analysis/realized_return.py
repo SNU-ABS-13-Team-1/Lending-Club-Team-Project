@@ -74,12 +74,27 @@ class ReturnAssumptions:
     """투자자 서비스수수료 연율. 잠정 0% (#20 미확정)."""
 
     prepayment_adjustment: float = 0.0
-    """칸별 `Δ̄_조기상환` 보정항. 잠정 0 — **정상상환분 R이 과대추정된다**(#20 1순위 미결)."""
+    """`contract_return()`에 더하는 **스칼라** 보정항. 기본 0을 유지한다.
+
+    ✅ 조기상환 보정은 2026-07-31부터 **칸별로 데이터에서 추정**한다
+    (`normal_cell_stats()`의 `Δ̄_조기상환,d`) — 이 스칼라는 민감도 실험용 수동 오버라이드로만
+    남겨둔다. #20이 남긴 "B팀 1순위"는 칸별 추정으로 해소됐다.
+    """
+
+    realized_basis: str = "cashflow"
+    """실현 `R`의 기준. `"cashflow"`: 건별 실제 현금흐름 + GS1M 실제경로 재투자(B팀 명세).
+
+    옛 `"contract"`(정상상환을 계약대로 가정)는 FP 36개월의 66%가 조기상환이라
+    36m +1.06%p / 60m +2.24%p 과대추정이었다 — 되살리지 않는다.
+    """
 
     def label(self) -> str:
-        """산출물 파일명·컬럼에 남길 가정 표기. 재투자 스위치는 통계표까지 바꾼다(#18)."""
+        """산출물 파일명·컬럼에 남길 가정 표기. 재투자 스위치는 통계표까지 바꾼다(#18).
+
+        ⚠️ `realized_basis`가 들어 있어 **조기상환 보정 전후 산출물이 서로 덮어쓰지 않는다.**
+        """
         fee = f"fee{self.servicing_fee_annual * 100:g}pct"
-        return f"provisional_{self.reinvest}_{self.treasury_basis}_{fee}"
+        return f"provisional_{self.reinvest}_{self.treasury_basis}_{fee}_{self.realized_basis}"
 
 
 # ---------------------------------------------------------------------------
@@ -98,10 +113,18 @@ def load_treasury() -> pd.DataFrame:
 def issue_risk_free_rate(
     issue_month_ord: pd.Series, term_months: pd.Series, treasury: pd.DataFrame | None = None
 ) -> pd.Series:
-    """발행시점 × 만기매칭 무위험수익률 `rf` (연율, 소수).
+    """발행시점 × 만기매칭 무위험수익률 `rf` (**유효연율**, 소수).
 
     `decision_log.md` #18 확정 — 36개월은 `GS3`, 60개월은 `GS5`. 고정 상수가 아니므로
     `config.yaml`의 `risk_free_rate.value`는 읽지 않는다(계속 `null`이다).
+
+    ⚠️ **FRED의 GS3·GS5는 반기복리 bond-equivalent yield다** — `y/100`으로 쓰면 유효연율을
+    과소평가하고, 그만큼 `XR = R − rf`가 과대평가된다. `R`은 월별 현금흐름을 굴려 만든
+    유효연율이므로 같은 기준으로 맞춘다(B팀 명세 8번과 동일).
+
+        rf = (1 + y/200)² − 1
+
+    실측 영향은 작지만 전 건에 **한 방향으로** 걸린다 — 평균 +0.30bp, 최대 +6.25bp.
     """
     t = treasury if treasury is not None else load_treasury()
     series_by_term = load_config().risk_free_rate.series or {36: "GS3", 60: "GS5"}
@@ -112,7 +135,7 @@ def issue_risk_free_rate(
         if not mask.any():
             continue
         out.loc[mask] = t[col].reindex(issue_month_ord.loc[mask]).to_numpy()
-    return out / 100.0
+    return np.power(1.0 + out / 200.0, 2.0) - 1.0
 
 
 def _monthly_rate(annual_rate: pd.Series | np.ndarray) -> np.ndarray:
@@ -271,12 +294,69 @@ def default_cell_stats(
     return stats
 
 
+def normal_cell_stats(
+    xr_contract: pd.Series,
+    xr_realized: pd.Series,
+    pd_quantile: pd.Series,
+    term_months: pd.Series,
+    min_count_mean: int = 100,
+    min_count_var: int = 300,
+) -> pd.DataFrame:
+    """칸별 **조기상환 보정** `Δ̄_조기상환,d`와 `var_정상,d` — 정상상환(FP) 건에서만 만든다.
+
+    #20이 "B팀 1순위"로 남긴 미결의 구현이다. 계약대로 만기까지 갚는다고 본 `xr_contract`가
+    실제(`xr_realized`)보다 얼마나 높은지를 칸별 평균으로 잡는다.
+
+        Δ̄_d = mean_{i∈d, FP}( XR_계약,i − XR_실현,i )      → 점수용 보정항
+        var_정상,d = var_{i∈d, FP}( XR_실현,i )             → Var[XR]의 정상 항
+
+    ## 왜 건별 실현값을 그대로 점수에 쓰지 않는가
+
+    개별 대출이 **몇 개월에 조기상환할지는 승인 시점에 알 수 없다.** `XR_실현,i`를 점수
+    `E[XR_i]`에 넣으면 미래를 보고 고르는 셈이라 누수다. 그래서 **건별 계약 현금흐름(A′의
+    핵심)은 유지하고, 조기상환은 칸별 평균 보정으로만** 넣는다 — `int_rate` 산포(칸별 sd
+    중앙값 2.85%p)는 보존되고 조기상환의 체계적 효과만 차감된다.
+
+    실측 보정폭: 36개월 **+1.06%p**, 60개월 **+2.24%p** (FP 36m의 66.03%가 조기상환).
+
+    `var_정상`은 `default_cell_stats()`와 같은 이유로 표본이 작은 칸에서 pooled로 축소한다.
+    보정 전에는 이 값이 **0으로 고정**돼 있어 `q_score` 분모가 부도 항만 반영했다.
+    """
+    frame = pd.DataFrame({
+        "gap": xr_contract - xr_realized,
+        "xr": xr_realized,
+        "q": pd_quantile,
+        "term": term_months,
+    }).dropna(subset=["gap", "xr"])
+
+    g = frame.groupby(["term", "q"], observed=True)
+    stats = pd.DataFrame({
+        "n": g.size(),
+        "prepay_adj": g["gap"].mean(),
+        "var": g["xr"].var(ddof=1),
+    })
+
+    pooled_var = frame["xr"].var(ddof=1)
+    pooled_adj = frame["gap"].mean()
+    stats["var_raw"] = stats["var"]
+    stats["shrunk"] = stats["n"] < min_count_var
+    stats.loc[stats["shrunk"], "var"] = pooled_var
+    stats.loc[stats["n"] < min_count_mean, "prepay_adj"] = pooled_adj
+    stats["pooled_var"] = pooled_var
+    stats["pooled_adj"] = pooled_adj
+    return stats
+
+
 def expected_excess_return(
     p_hat: pd.Series,
     xr_normal: pd.Series,
     mu_default: pd.Series,
 ) -> pd.Series:
-    """`E[XR_i] = (1 − p̂)·XR_정상,i + p̂·mu_부도,d(i)` (#20 구조 A′)."""
+    """`E[XR_i] = (1 − p̂)·XR_정상,i + p̂·mu_부도,d(i)` (#20 구조 A′).
+
+    `xr_normal`에는 **조기상환 보정이 이미 반영된 값**을 넣는다
+    (`xr_contract − Δ̄_조기상환,d`, `normal_cell_stats()` 참고).
+    """
     return (1.0 - p_hat) * xr_normal + p_hat * mu_default
 
 
@@ -321,12 +401,30 @@ def build_excess_returns(
     `XR_정상`은 **부도 건에도 정의된다** — "계약대로 갚았다면 얼마였을까"라서 실현 여부와
     무관하게 계산되며, `E[XR] = (1−p̂)·XR_정상 + p̂·mu_부도`의 첫 항이 바로 그 값이다.
 
-    `xr_realized`는 그와 달리 **실제로 벌어진 결과**다 — 부도 건은 실현 현금흐름,
-    정상 건은 계약 현금흐름. Sharpe는 기대값이 아니라 **이 값**으로 계산한다
-    (`src/analysis/AGENTS.md`: "점수의 이론값이 아니라 Validation 실현 XR로").
+    `xr_realized`는 그와 달리 **실제로 벌어진 결과**다 — **정상·부도 모두 건별 실제 현금흐름**
+    으로 계산한다(`realized_return_cashflow.py`, B팀 명세). Sharpe는 기대값이 아니라
+    **이 값**으로 계산한다(`src/analysis/AGENTS.md`).
 
-    ⚠️ 조기상환 보정이 잠정 0이라 정상상환 건의 `xr_realized`는 **과대추정**이다(#20 1순위).
+    ✅ **조기상환이 반영된다** (2026-07-31). 이전에는 정상상환 건의 `xr_realized`를 계약
+    현금흐름으로 두어 36m **+1.06%p** / 60m **+2.24%p** 과대추정이었다 — FP 36개월의
+    **66.03%가 조기상환**이기 때문이다(#20 B팀 1순위 해소).
+
+    반환 열
+    -------
+    `xr_normal`
+        **계약** 기준 정상상환 XR. 점수용이며, 쓸 때는 칸별 `Δ̄_조기상환`을 빼서 쓴다
+        (`normal_cell_stats()`). 여기서 빼지 않는 것은 보정항이 **Train에서만** 추정돼야
+        하기 때문이다 — 이 함수는 Train/Validation을 모른다.
+    `xr_realized`
+        정상·부도 모두 **실현** 현금흐름 XR. Sharpe 계산용.
+    `xr_default` / `xr_normal_realized`
+        `xr_realized`를 부도 / 정상으로 각각 마스킹한 것. 칸별 통계표 산출용.
     """
+    from analysis.realized_return_cashflow import (
+        build_cashflow_schedule,
+        realized_return_actual,
+    )
+
     rf = issue_risk_free_rate(outcome["issue_month_ord"], outcome["term"])
 
     r_contract = contract_return(
@@ -336,17 +434,27 @@ def build_excess_returns(
         reinvest_rate=rf,
         assumptions=assumptions,
     )
-    r_default = realized_return_defaulted(outcome, reinvest_rate=rf, assumptions=assumptions)
-
     xr_normal = r_contract - rf
-    xr_default = (r_default - rf).where(outcome["is_default"] == 1)
+
+    if assumptions.reinvest == "cash":
+        # 민감도 병기용 0% 재투자 — 실현분도 같은 관례로 맞춘다(#18).
+        r_realized = realized_return_defaulted(
+            outcome, reinvest_rate=rf, assumptions=assumptions
+        ).where(outcome["is_default"] == 1, r_contract)
+    else:
+        schedule = build_cashflow_schedule(outcome)
+        r_realized = realized_return_actual(schedule)["R"]
+
+    xr_realized = r_realized - rf
+    is_def = outcome["is_default"] == 1
 
     return pd.DataFrame(
         {
             "rf": rf,
             "xr_normal": xr_normal,
-            "xr_default": xr_default,
-            "xr_realized": xr_default.where(outcome["is_default"] == 1, xr_normal),
+            "xr_default": xr_realized.where(is_def),
+            "xr_normal_realized": xr_realized.where(~is_def),
+            "xr_realized": xr_realized,
             "term": outcome["term"],
             "int_rate": outcome["int_rate"],
             "is_default": outcome["is_default"],
