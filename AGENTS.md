@@ -59,6 +59,8 @@
 | └ 서비스수수료(~1%) 반영 | ❌ 미확정 (잠정 0%로 진행 가능) | #20 |
 | 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ⏳ **근거 확보 — 팀 확정 대기** (`q_score` 우세) | #5·#20 |
 | 확률보정 (isotonic) | ⏳ **구현·검증 완료 — 팀 확정 대기** | C-4 |
+| 피처에서 `zip_code` 제외 | ⏳ **근거 확보 — 팀 확정 대기** (CV AUC +0.0072, K=50 검증 남음) | `model_comparison_kgj.md` |
+| 모형 후보 제출 규격 (CV 평균±sd·OOF PD) | ⏳ **규격안 제출 — 팀 확정 대기** | `model_comparison_kgj.md` |
 | 시각화 규칙 | ❌ 미착수 | — |
 
 > **A팀은 미확정 항목을 기다릴 필요가 없다.** 분류 모델의 타깃은 이진 `loan_status`이므로
@@ -164,6 +166,7 @@
 | **B팀 핸드오프 — 실현수익률 계산** (산출물 3종·1순위 조기상환 보정·작업 0/7~10) | `handoff_teamb_realized_return.md` |
 | **OOF 파이프라인 진단 4종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전·**확률보정**) | `oof_diagnostics_kgj.md` |
 | **Sharpe threshold 탐색** (랭킹 기준 3종 비교·Δ의 재투자 가정 안정성·절대 Sharpe 병기 근거) | `sharpe_threshold_kgj.md` |
+| **PD 모형 후보 교차검증** (팀원 3인 스펙 6종 비교·**`zip_code` 제외 제안**·후보 제출 규격안) | `model_comparison_kgj.md` |
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -212,6 +215,11 @@
 | `src/analysis/realized_return_spec_check.py` | `decision_log.md` #20 · 이슈 #15 (탈락 캐스케이드·계산 가능 건수) | `outputs/realized_return_spec_check_cascade.csv`, `outputs/realized_return_spec_check_R_by_status_term.csv` |
 | `src/analysis/realized_return_sensitivity.py` | `decision_log.md` #18 (**재투자 가정 +107.5bp**) | `outputs/realized_return_sensitivity.csv` |
 | `src/analysis/auc_sample_filter_comparison.py` | `oof_diagnostics_kgj.md` (**AUC 0.71대 = #16 필터 이전 값**) | `outputs/auc_sample_filter_comparison.csv` |
+| `src/analysis/model_comparison.py` (`--only` 6블록) | `model_comparison_kgj.md` (**팀원 3인 스펙 비교·`zip_code` 근거**) | `outputs/model_comparison_*.csv` (8종) |
+
+> ⚠️ **예외 — `model_comparison.py`는 `config.yaml`의 매니페스트 분할을 쓴다.** 비교 질문이
+> "팀 표준 분할에서 어느 스펙이 나은가"이므로 자체 분할을 쓰면 질문이 달라진다. Test는 열지 않는다.
+> `--only stability`는 수십 분~수 시간이라 기본 실행에서 빠져 있고, 증분 저장·재시작을 지원한다.
 
 > **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않는다(자체 분할·자체 seed — 의도된 차이.
 > 성격 구분 상세는 `src/analysis/AGENTS.md`). AUC는 상대 비교 전용이며, 여기서 나오는 0.68대는
