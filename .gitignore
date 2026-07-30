@@ -8,8 +8,29 @@ __pycache__/
 # 100MB 제한 초과 — git에 올리지 않음
 data/raw/lending_club_2020_train.csv
 
+# 전수(72만 행) 계산 결과 CSV — 대용량이라 git에 두지 않는다.
+# 표본 실행이 전수 결과를 덮어쓰지 않도록 파일명을 *_full / *_sample 로 분리하는 규칙이
+# src/preprocessing/AGENTS.md "결과 파일 저장 규칙"에 있다. 요약 집계표만 outputs/에 커밋하고,
+# 전체 결과는 각자 스크립트로 재생성한다.
+*_full.csv
+outputs/realized_return*.csv
+outputs/excess_return*.csv
+data/processed/realized_return*.csv
+data/processed/excess_return*.csv
+
+# 위 규칙의 예외 — 재현 스크립트가 내는 **요약 집계표**(전부 1KB 미만)는 커밋한다.
+# 위 glob이 의도(전수 건별 결과 = `*_full.csv` 차단)보다 넓어 집계표까지 잡기 때문이다.
+!outputs/realized_return_spec_check_cascade.csv
+!outputs/realized_return_spec_check_R_by_status_term.csv
+!outputs/realized_return_sensitivity.csv
+
 # 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
 share/
+
+# 팀 공유용 전처리 데이터셋 (parquet) — 전수 72만 행이라 100MB 제한에 걸린다.
+# Slack 등 팀 채널로 공유하고, 필요하면 export_shared_dataset.py로 재생성한다.
+# 분할 정의 자체는 split_manifest_*.csv.gz가 git에 있으므로 재현에 문제없다.
+data/processed/shared/
 
 # 에디터 로컬 설정 — 개인 환경이므로 공유하지 않음
 .vscode/

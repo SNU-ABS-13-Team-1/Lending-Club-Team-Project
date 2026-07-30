@@ -1,247 +1,335 @@
-"""부도확률(PD) 예측 XGBoost 모형 — 본 파이프라인.
+"""부도확률(PD) 예측 모형 — XGBoost 단일 · K-fold OOF.
 
-피처 구성은 `data/processed/lending_club_변수분류_류성환.xlsx_v2.numbers`
-(유지변수_84 시트, 2026-07-27 개정판)의 예측 피처 83개 + 타겟 `loan_status`를 따른다.
+**모형은 XGBoost 하나다** (`decision_log.md` #17 ①, 2026-07-29 회의 확정).
+로지스틱 회귀는 폐기됐고, 그에 따라 결측 대체·표준화·더미화도 함께 폐기됐다(#13 ③·#17).
 
-결측치는 채우지 않고 NaN 그대로 XGBoost에 넘긴다. `decision_log.md` #13 ③
-("결측치 전부 NaN 유지")은 **XGBoost 단일화를 전제**로 조건부 확정된 결론이고, 이
-스크립트가 바로 그 전제(모형 학습팀이 XGBoost로 확정)를 채우는 자리다. 범주형도
-별도 인코딩 없이 XGBoost native categorical(`enable_categorical=True`)로 넘긴다
-(`decision_log.md` #8의 GBM 민감도 비교 — "결측치 native 처리, 범주형 native 처리,
-스케일링 불필요" 참고).
+## 왜 OOF(out-of-fold)인가
 
-⚠️ 모형 후보 자체는 아직 `decision_log.md` #3에서 "진행 중"이다. 팀이 로지스틱 등
-다른 모형으로 최종 결정하면 #13의 결측·인코딩 결론이 전제(XGBoost)와 함께 원복된다.
+구조 A′(#20)는 **PD 분위별 칸**에 실현수익률 통계를 채운다. 이때 분위를 만드는 PD가
+**같은 데이터로 학습한 모형의 in-sample 예측**이면 과적합된 PD로 칸을 나누게 되어,
+칸별 통계가 실제보다 잘 분리된 것처럼 보인다. 그래서 Train 안에서 K-fold를 돌려
+**자기 fold를 학습에 쓰지 않은 예측(OOF)** 으로 분위 경계를 만든다.
 
-미확정 항목은 상수로 박지 않고 함수 인자로 노출한다 (`AGENTS.md` 공통 원칙):
-- `include_default`: Default(268건) 부도 포함 여부 — 변수분류 시트 "팀 미결사항 3)".
-  기본 False(엄격정의: Charged Off만 부도) — `preprocessing_validation.py`와 동일 정의.
-- `apply_maturity_filter`: 만기 컷 표본 필터 — `decision_log.md` #12(방향 지지, 방식
-  재협의 중). 기본 False.
-둘 다 팀이 확정하면 이 파일의 기본값만 바꾸면 된다.
+- PD 분위 경계는 **Train OOF PD**로 만들고 Validation·Test에 **그대로 적용**한다.
+  재분위 금지 — 재분위하면 threshold가 "PD 얼마 이하"가 아니라 "그 표본의 상위 몇 %"가
+  되어 이전할 수 없다 (`src/analysis/AGENTS.md`).
+- fold 모델은 Train의 `(K−1)/K`로 학습하고 최종 모델은 Train 전체로 학습하므로
+  **PD 스케일이 미세하게 다르다.** 이 차이가 분위별 인원을 10%에서 밀어내는데,
+  얼마나 밀리는지는 `oof_diagnostics.py`의 진단 C-3이 잰다.
 
-train/validation 6:2 분할만 다룬다 — test 20%는 팀 공통으로 별도 관리한다
-(`AGENTS.md` "Train 60%/Validation 20%/Test 20%"의 두 번째 단계: 이미 test가 빠진
-나머지 80%를 `config.yaml`의 train:validation 비율(0.6:0.2 → 75:25)로 분리).
+## 확률보정(isotonic) — 왜 필요한가
 
-실행:
-    python src/analysis/model.py
-    python src/analysis/model.py --raw-file data/processed/lending_club_2020_train_sample_9000.csv
-        (스키마 동일 여부·코드 정상 동작만 확인하는 스모크 테스트용 — 결과 수치를
-         분석/보고에 인용하지 않는다. `AGENTS.md` "표본은 분석에 쓰지 않는다" 참고.)
+구조 A′는 `p̂`를 **순위가 아니라 확률 값**으로 쓴다.
+
+```
+E[XR_i] = (1 − p̂_i) · XR_정상,i + p̂_i · mu_부도,d(i)
+```
+
+`p̂`가 0.10인데 실제 부도율이 0.13인 구간이 있으면, 그 오차 0.03이 `(mu_정상 − mu_부도)`
+(대략 20%p)를 곱해 **`E[XR]`에 60bp의 편향**으로 그대로 들어간다. `E[XR]` 수준이 1~3%인 것을
+감안하면 무시할 크기가 아니다. **AUC로는 이 오류가 전혀 안 잡힌다** — AUC는 순위만 본다.
+
+- 보정은 **Train OOF PD로 학습한다**(`fit_calibrator`). in-sample 예측으로 학습하면 과적합된
+  매핑을 배우게 되어 보정 자체가 무의미해진다 — OOF를 만드는 이유와 같다.
+- 학습 비용이 **추가로 들지 않는다.** 이미 만든 `pd_oof`가 곧 isotonic의 학습 데이터다.
+- ⚠️ **isotonic은 비감소(non-decreasing) 계단함수라 평탄구간(plateau)에서 동순위를 만든다.**
+  "단조변환이니 분위 배정이 그대로"는 **정확히는 틀리다** — 수십만 개 PD가 수백 개 값으로
+  뭉치고, 분위 경계가 평탄구간 안에 떨어지면 그 구간 전체가 한 칸으로 몰린다.
+- 그래서 **PD의 두 역할을 나눈다** (근거는 진단 C-4):
+  **분위 경계·배정과 승인선 점수는 보정 전 PD**, **`E[XR]`·`Var[XR]`의 `p̂`만 보정 후 PD**를 쓴다.
+  분위는 칸을 묶는 도구라 순위만 필요하고 촘촘한 쪽이 정확히 10%씩 나뉜다. 확률 값이 필요한
+  곳은 `E[XR]` 하나다.
+- fold 모델(Train 80%)로 만든 보정을 최종 모델(Train 100%) 예측에 적용하므로 PD 스케일이 미세하게
+  다르다. 그 차이는 C-3이 이미 쟀다(분위 인원 이탈 최대 0.46%p).
+
+## AUC 사용 범위
+
+성능 보고와 처리 방식 간 상대 비교에는 써도 되지만, **승인/거절 threshold를 정하는 데는
+쓰지 않는다** (`src/analysis/AGENTS.md`). threshold는 오직 Sharpe로 정한다.
+⚠️ **보정은 AUC를 (거의) 바꾸지 않는다** — 순위 지표라서 그렇다. 보정의 효과는 AUC가 아니라
+**Brier·ECE**로 봐야 한다.
+⚠️ 기준선은 **확정 표본(#16, 723,563건) 실측 0.70대**다. 문서에 남아 있는 "0.71대"는
+#16 만기필터 확정 이전 값이라 인용하지 않는다 — 같은 피처·모델로 필터만 빼면 0.7283이 나와
+**−2.1%p가 오롯이 필터 효과**임이 확인됐다(`outputs/reports/oof_diagnostics_kgj.md`).
+Lean 0.68은 이미 확정 표본 기준이므로(#13 ⑤), 조건변수 효과는 **0.68 → 0.70**이다.
 """
 
 from __future__ import annotations
 
-import argparse
-import sys
+
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBClassifier
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "src"))
-from utils.config import Config, load_config  # noqa: E402
+try:
+    from utils.config import load_config
+except ModuleNotFoundError:  # pragma: no cover
+    import sys
 
-# ── 변수분류 시트 "유지변수_84" 그대로 — 예측 피처 83개 (타겟 loan_status 제외) ──
-PREDICTIVE_FEATURES = [
-    # A — 핵심 대출·신청 정보 (22)
-    "annual_inc", "delinq_2yrs", "dti", "emp_length", "fico_range_high", "fico_range_low",
-    "funded_amnt", "funded_amnt_inv", "grade", "home_ownership", "inq_last_6mths",
-    "installment", "int_rate", "loan_amnt", "mort_acc", "pub_rec", "pub_rec_bankruptcies",
-    "purpose", "revol_util", "sub_grade", "term", "verification_status",
-    # B — CB 상세 계좌통계, 결측 5.3% 이하 (40)
-    "acc_open_past_24mths", "addr_state", "application_type", "avg_cur_bal",
-    "bc_open_to_buy", "bc_util", "chargeoff_within_12_mths", "collections_12_mths_ex_med",
-    "earliest_cr_line", "initial_list_status", "mo_sin_old_il_acct", "mo_sin_old_rev_tl_op",
-    "mo_sin_rcnt_rev_tl_op", "mo_sin_rcnt_tl", "mths_since_recent_bc",
-    "num_accts_ever_120_pd", "num_actv_bc_tl", "num_actv_rev_tl", "num_bc_sats",
-    "num_bc_tl", "num_il_tl", "num_op_rev_tl", "num_rev_accts", "num_rev_tl_bal_gt_0",
-    "num_sats", "num_tl_90g_dpd_24m", "num_tl_op_past_12m", "open_acc", "pct_tl_nvr_dlq",
-    "percent_bc_gt_75", "revol_bal", "tax_liens", "tot_coll_amt", "tot_cur_bal",
-    "tot_hi_cred_lim", "total_acc", "total_bal_ex_mort", "total_bc_limit",
-    "total_il_high_credit_limit", "total_rev_hi_lim",
-    # C — 결측 12.7% 이상, 특별처리(D_X) 대상이던 변수. 여기서는 D_X를 만들지 않고
-    #     NaN을 그대로 둔다 — T2/T3 처방 차이는 XGBoost가 분기로 흡수한다(#13 근거).
-    "mths_since_last_record", "mths_since_recent_bc_dlq", "mths_since_last_major_derog",
-    "mths_since_recent_revol_delinq", "mths_since_last_delinq", "il_util",
-    "mths_since_rcnt_il", "all_util", "inq_fi", "inq_last_12m", "max_bal_bc",
-    "open_acc_6m", "open_act_il", "open_il_12m", "open_il_24m", "open_rv_12m",
-    "open_rv_24m", "total_bal_il", "total_cu_tl", "mths_since_recent_inq",
-    # 특수 — 시점 변수 (1)
-    "issue_d",
-]
-
-TARGET_COLUMN = "loan_status"
-POLICY_PREFIX = "Does not meet the credit policy. Status:"
-
-EMP_LENGTH_MAP = {
-    "< 1 year": 0, "1 year": 1, "2 years": 2, "3 years": 3, "4 years": 4, "5 years": 5,
-    "6 years": 6, "7 years": 7, "8 years": 8, "9 years": 9, "10+ years": 10,
-}
-
-# 원-핫 대신 XGBoost native categorical(enable_categorical=True)로 넘길 컬럼
-CATEGORICAL_FEATURES = [
-    "grade", "sub_grade", "home_ownership", "verification_status", "purpose",
-    "addr_state", "initial_list_status", "application_type",
-]
-
-# 문자열에 '%'가 섞여 들어오는 컬럼 — 제거 후 float 변환
-PERCENT_FEATURES = ["int_rate", "revol_util"]
-
-# 날짜 문자열("%b-%Y") — 파생 피처만 남기고 원본은 버린다
-DATE_FEATURES = ["issue_d", "earliest_cr_line"]
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.config import load_config
 
 
-def _read_raw(raw_file: Path) -> pd.DataFrame:
-    usecols = sorted(set(PREDICTIVE_FEATURES) | {TARGET_COLUMN, "earliest_cr_line"})
-    return pd.read_csv(raw_file, usecols=usecols, low_memory=False)
+DEFAULT_N_FOLDS = 5
 
 
-def _build_target(loan_status: pd.Series, include_default: bool) -> pd.Series:
-    """loan_status → 부도 이진 타겟. 대상 외 상태(Current/Late 등)는 NaN으로 남겨 이후 제거."""
-    status = loan_status.astype(str).str.replace(POLICY_PREFIX, "", regex=False)
-    bad_labels = {"Charged Off"} | ({"Default"} if include_default else set())
-    good_labels = {"Fully Paid"}
-    y = pd.Series(np.nan, index=loan_status.index)
-    y[status.isin(bad_labels)] = 1
-    y[status.isin(good_labels)] = 0
-    return y
+def default_params(seed: int | None = None) -> dict:
+    """XGBoost 하이퍼파라미터.
 
+    `enable_categorical=True` + `tree_method="hist"`로 범주형과 NaN을 native 처리한다 —
+    원-핫도, 결측 대체도 하지 않는다는 확정(#13 ③·#17)을 코드 수준에서 지키는 부분이다.
 
-def _build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """원본 컬럼을 모델 입력용으로 변환한다. 결측은 대체하지 않고 NaN 그대로 둔다."""
-    X = df.copy()
-
-    issue_dt = pd.to_datetime(X["issue_d"], format="%b-%Y", errors="coerce")
-    earliest_dt = pd.to_datetime(X["earliest_cr_line"], format="%b-%Y", errors="coerce")
-    X["issue_year"] = issue_dt.dt.year.astype("float64")
-    month_angle = 2 * np.pi * issue_dt.dt.month / 12
-    X["issue_month_sin"] = np.sin(month_angle)
-    X["issue_month_cos"] = np.cos(month_angle)
-    X["credit_history_months"] = (
-        (issue_dt.dt.year - earliest_dt.dt.year) * 12 + (issue_dt.dt.month - earliest_dt.dt.month)
-    ).astype("float64")
-    X = X.drop(columns=DATE_FEATURES)
-
-    X["fico_avg"] = (X["fico_range_high"] + X["fico_range_low"]) / 2
-    X = X.drop(columns=["fico_range_high", "fico_range_low"])
-
-    X["emp_length"] = X["emp_length"].map(EMP_LENGTH_MAP)
-    X["term"] = X["term"].astype(str).str.extract(r"(\d+)").astype("float64")
-
-    for col in PERCENT_FEATURES:
-        if X[col].dtype == object:
-            X[col] = X[col].astype(str).str.rstrip("%").astype("float64")
-
-    for col in CATEGORICAL_FEATURES:
-        X[col] = X[col].astype("category")
-
-    return X
-
-
-def load_training_data(
-    raw_file: Path,
-    include_default: bool = False,
-    apply_maturity_filter: bool = False,
-    maturity_cutoff: pd.Period | None = None,
-) -> tuple[pd.DataFrame, pd.Series]:
-    """원본 CSV를 읽어 (X, y)를 반환한다.
-
-    include_default, apply_maturity_filter는 팀에서 아직 확정하지 않은 판단이라
-    상수로 박지 않고 인자로 노출한다 — 모듈 docstring 참고.
+    ⚠️ `scale_pos_weight`를 쓰지 않는다. 부도율 16.2%는 극단적 불균형이 아니고, 가중치를
+    걸면 예측값이 확률이 아니게 되어 `E[XR] = (1−p̂)·… + p̂·…`에 그대로 쓸 수 없다(#20).
+    `p̂`를 순위가 아니라 **확률 값**으로 쓰기 때문이다.
     """
-    raw = _read_raw(raw_file)
-    y = _build_target(raw[TARGET_COLUMN], include_default=include_default)
-    keep = y.notna()
-
-    if apply_maturity_filter:
-        if maturity_cutoff is None:
-            raise ValueError("apply_maturity_filter=True면 maturity_cutoff이 필요하다 (decision_log #12).")
-        issue_dt = pd.to_datetime(raw["issue_d"], format="%b-%Y", errors="coerce")
-        term_m = raw["term"].astype(str).str.extract(r"(\d+)")[0].astype("float64")
-        matured = (issue_dt.dt.to_period("M") + term_m) <= maturity_cutoff
-        keep &= matured
-
-    df = raw.loc[keep].copy()
-    y = y.loc[keep].astype(int)
-
-    X = _build_features(df[PREDICTIVE_FEATURES])
-    return X, y
-
-
-def split_train_validation(
-    X: pd.DataFrame, y: pd.Series, cfg: Config
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    """cfg.split의 train:validation 비율로 분리한다 (test는 이미 빠진 데이터를 가정).
-
-    `AGENTS.md`의 6:2:2 절차 중 두 번째 단계(남은 80%를 75/25로 Train/Validation)에
-    해당한다. test 20% 분리는 팀 공통으로 별도 처리하므로 이 함수 밖에서 이뤄진다.
-    """
-    val_ratio = cfg.split.validation / (cfg.split.train + cfg.split.validation)
-    return train_test_split(
-        X, y, test_size=val_ratio, stratify=y, random_state=cfg.random_seed.default,
-    )
+    cfg = load_config()
+    return {
+        "n_estimators": 600,
+        "learning_rate": 0.05,
+        "max_depth": 6,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "objective": "binary:logistic",
+        "eval_metric": "auc",
+        "tree_method": "hist",
+        "enable_categorical": True,
+        "max_cat_to_onehot": 1,  # 항상 분할 기반 처리 — 고카디널리티에서 원-핫 폭발 방지
+        "random_state": cfg.random_seed.default if seed is None else seed,
+        "n_jobs": -1,
+    }
 
 
 def train_model(
-    X_train: pd.DataFrame,
-    y_train: pd.Series,
-    eval_set: list[tuple[pd.DataFrame, pd.Series]] | None = None,
-    random_state: int = 42,
+    X_train: pd.DataFrame, y_train: pd.Series, params: dict | None = None, seed: int | None = None
 ) -> XGBClassifier:
-    model = XGBClassifier(
-        n_estimators=500,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        tree_method="hist",
-        enable_categorical=True,
-        eval_metric="auc",
-        early_stopping_rounds=50 if eval_set else None,
-        random_state=random_state,
-        n_jobs=-1,
-    )
-    model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
+    """PD 모형을 학습한다."""
+    model = XGBClassifier(**(params or default_params(seed)))
+    model.fit(X_train, y_train, verbose=False)
     return model
 
 
 def predict_default_probability(model: XGBClassifier, X: pd.DataFrame) -> pd.Series:
+    """부도확률 `p̂`를 반환한다 (양성 클래스 = `Charged Off`)."""
     proba = model.predict_proba(X)[:, 1]
-    return pd.Series(proba, index=X.index, name="pd_hat")
+    return pd.Series(proba, index=X.index, name="pd")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--raw-file", type=Path, default=None, help="기본값: config.yaml의 data_raw/lending_club_2020_train.csv")
-    parser.add_argument("--include-default", action="store_true")
-    args = parser.parse_args()
+def compute_oof(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    n_folds: int = DEFAULT_N_FOLDS,
+    params: dict | None = None,
+    seed: int | None = None,
+    verbose: bool = True,
+) -> tuple[pd.Series, list[float], pd.Series]:
+    """Train 안에서 K-fold를 돌려 OOF PD를 만든다.
 
+    Returns
+    -------
+    (pd_oof, fold_auc, fold_index)
+        `pd_oof`는 Train과 같은 인덱스·길이를 갖는다.
+    """
     cfg = load_config()
-    raw_file = args.raw_file or (cfg.paths.data_raw / "lending_club_2020_train.csv")
-    if not raw_file.exists():
-        raise FileNotFoundError(
-            f"{raw_file} 이 없다. 팀 공유 채널에서 원본(1.2GB, git 미추적)을 받아 "
-            f"{cfg.paths.data_raw}/ 에 두거나 --raw-file로 다른 경로를 지정한다."
-        )
+    seed = cfg.random_seed.default if seed is None else seed
 
-    X, y = load_training_data(raw_file, include_default=args.include_default)
-    X_train, X_val, y_train, y_val = split_train_validation(X, y, cfg)
-    print(f"train={len(X_train):,}행 (부도율 {y_train.mean():.4f})  "
-          f"validation={len(X_val):,}행 (부도율 {y_val.mean():.4f})")
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    pd_oof = pd.Series(np.nan, index=X_train.index, name="pd_oof")
+    fold_index = pd.Series(-1, index=X_train.index, name="fold", dtype="int8")
+    fold_auc: list[float] = []
 
-    model = train_model(X_train, y_train, eval_set=[(X_val, y_val)], random_state=cfg.random_seed.default)
+    for k, (tr, va) in enumerate(skf.split(X_train, y_train)):
+        X_tr, y_tr = X_train.iloc[tr], y_train.iloc[tr]
+        X_va, y_va = X_train.iloc[va], y_train.iloc[va]
 
-    val_proba = predict_default_probability(model, X_val)
-    val_auc = roc_auc_score(y_val, val_proba)
-    # AUC는 참고용 모니터링 지표일 뿐, 승인/거절 기준은 아니다 — src/analysis/AGENTS.md.
-    print(f"validation AUC = {val_auc:.4f} (참고용 — 승인/거절 threshold는 Sharpe Ratio로 별도 결정)")
+        model = train_model(X_tr, y_tr, params=params, seed=seed)
+        p = predict_default_probability(model, X_va)
+
+        pd_oof.iloc[va] = p.to_numpy()
+        fold_index.iloc[va] = k
+        auc = roc_auc_score(y_va, p)
+        fold_auc.append(auc)
+        if verbose:
+            print(f"  fold {k + 1}/{n_folds}  n_va={len(va):>7,}  AUC={auc:.5f}")
+
+    if pd_oof.isna().any():
+        raise RuntimeError("OOF 예측에 결측이 남았습니다 — fold 분할을 확인하세요.")
+
+    return pd_oof, fold_auc, fold_index
+
+
+# ---------------------------------------------------------------------------
+# 확률보정 (isotonic)
+# ---------------------------------------------------------------------------
+def fit_calibrator(pd_oof: pd.Series, y_train: pd.Series) -> IsotonicRegression:
+    """Train **OOF** PD로 isotonic 보정을 학습한다.
+
+    `E[XR]`이 `p̂`를 확률 값으로 쓰므로 보정 오차가 `E[XR]`에 직접 들어간다(모듈 docstring).
+    OOF를 쓰는 것이 요점이다 — in-sample 예측으로 맞추면 과적합된 매핑을 배운다.
+
+    `out_of_bounds="clip"`은 Validation·Test에서 Train OOF 범위를 벗어난 PD가 나올 때
+    양 끝값으로 자른다. 부도확률이므로 `[0, 1]`을 벗어나서는 안 된다.
+
+    ⚠️ Platt(로지스틱) 대신 isotonic을 쓰는 이유: 표본이 43만 건(Train)이라 isotonic의
+    과적합 위험이 낮고, Platt은 시그모이드 모양을 강제해 XGBoost의 왜곡을 다 못 펴기 때문이다.
+    """
+    return IsotonicRegression(y_min=0.0, y_max=1.0, increasing=True, out_of_bounds="clip").fit(
+        pd_oof.to_numpy(dtype="float64"), y_train.to_numpy(dtype="float64")
+    )
+
+
+def apply_calibrator(calibrator: IsotonicRegression, p_hat: pd.Series) -> pd.Series:
+    """보정된 부도확률. 인덱스를 보존한다."""
+    return pd.Series(
+        calibrator.predict(p_hat.to_numpy(dtype="float64")),
+        index=p_hat.index,
+        name="pd_calibrated",
+    )
+
+
+def calibration_table(y: pd.Series, p_hat: pd.Series, n_bins: int = 10) -> pd.DataFrame:
+    """구간별 예측확률 평균 vs 실제 부도율.
+
+    **동일 폭이 아니라 동일 인원(분위) 구간**으로 자른다 — PD 분포가 오른쪽으로 길게
+    치우쳐 있어 동일 폭으로 자르면 상위 구간이 거의 비고, 파이프라인이 쓰는 PD 10분위와도
+    기준이 어긋난다.
+    """
+    edges = np.unique(np.quantile(p_hat.to_numpy(dtype="float64"), np.linspace(0, 1, n_bins + 1)))
+    bins = pd.cut(p_hat, bins=edges, include_lowest=True, duplicates="drop")
+
+    frame = pd.DataFrame({"y": y, "p": p_hat, "bin": bins})
+    g = frame.groupby("bin", observed=True)
+    out = pd.DataFrame(
+        {"n": g.size(), "mean_pred": g["p"].mean(), "observed": g["y"].mean()}
+    )
+    out["gap_pp"] = (out["mean_pred"] - out["observed"]) * 100.0
+    return out.reset_index(drop=True).assign(bin=lambda d: d.index + 1)
+
+
+def calibration_metrics(y: pd.Series, p_hat: pd.Series, n_bins: int = 10) -> dict:
+    """보정 품질 지표. **AUC가 아니라 이 값들로 보정 효과를 판단한다.**
+
+    - `brier`: `mean((p̂ − y)²)`. 판별력과 보정을 함께 담는다(낮을수록 좋다).
+    - `ece`: 기대보정오차 `Σ (n_b/N)·|예측평균_b − 실측률_b|`. 구간별 어긋남의 가중평균.
+    - `mce`: 최대보정오차 — 최악 구간의 어긋남.
+    - `bias_pp`: 전체 예측평균 − 실제 부도율. 방향(과대/과소)을 본다.
+    """
+    tbl = calibration_table(y, p_hat, n_bins=n_bins)
+    w = tbl["n"] / tbl["n"].sum()
+    gap = (tbl["mean_pred"] - tbl["observed"]).abs()
+    return {
+        "auc": float(roc_auc_score(y, p_hat)),
+        "brier": float(np.mean((p_hat.to_numpy(dtype="float64") - y.to_numpy(dtype="float64")) ** 2)),
+        "ece_pp": float((w * gap).sum() * 100.0),
+        "mce_pp": float(gap.max() * 100.0),
+        "bias_pp": float((p_hat.mean() - y.mean()) * 100.0),
+    }
+
+
+def calibration_noise_floor(
+    p_hat: pd.Series, n_sim: int = 20, n_bins: int = 10, seed: int | None = None
+) -> dict:
+    """**완벽히 보정된 모형이라도 나오는 ECE** — 판정 기준선.
+
+    ECE는 유한표본 잡음 때문에 0이 되지 않는다. `y ~ Bernoulli(p̂)`를 직접 생성해 재보면
+    "이 표본 크기에서 보정이 완벽할 때의 ECE"가 나온다. 실측 ECE가 이 값 수준이면
+    **보정할 것이 없다는 뜻**이고, 몇 배 크면 실제로 어긋난 것이다.
+
+    합성 실험에서 n=50,000·10구간의 바닥값이 0.32%p였다 — 표본이 작으면 판정 기준
+    0.5%p가 바닥값과 구분되지 않으므로 이 함수로 함께 보고한다.
+    """
+    rng = np.random.default_rng(load_config().random_seed.default if seed is None else seed)
+    p = p_hat.to_numpy(dtype="float64")
+    eces = [
+        calibration_metrics(pd.Series(rng.binomial(1, p), index=p_hat.index), p_hat, n_bins)["ece_pp"]
+        for _ in range(n_sim)
+    ]
+    return {"ece_floor_mean_pp": float(np.mean(eces)), "ece_floor_max_pp": float(np.max(eces))}
+
+
+def assign_pd_quantile(
+    pd_values: pd.Series,
+    edges: np.ndarray,
+) -> pd.Series:
+    """PD 값을 **주어진 경계**로 분위에 배정한다 (1 = 최저 PD).
+
+    경계를 인자로 받는 것이 요점이다 — Validation·Test에서 다시 분위를 만들지 않고
+    Train OOF 경계를 그대로 적용한다(`src/analysis/AGENTS.md` 재분위 금지).
+    """
+    q = np.digitize(pd_values.to_numpy(), edges, right=True) + 1
+    q = np.clip(q, 1, len(edges) + 1)
+    return pd.Series(q, index=pd_values.index, name="pd_quantile", dtype="int8")
+
+
+def make_quantile_edges(pd_train_oof: pd.Series, n_quantiles: int = 10) -> np.ndarray:
+    """Train OOF PD로 분위 경계를 만든다. 내부 경계만 돌려준다(길이 `n_quantiles − 1`)."""
+    qs = np.linspace(0, 1, n_quantiles + 1)[1:-1]
+    return np.quantile(pd_train_oof.to_numpy(), qs)
+
+
+def quantile_edges_by_term(
+    pd_oof: pd.Series, term: pd.Series, n_quantiles: int = 10
+) -> dict[float, np.ndarray]:
+    """term별로 **따로** PD 분위 경계를 만든다 (`decision_log.md` #20 권고).
+
+    전체 공통 분위로 자르면 **60개월·저PD 칸이 거의 빈다** — 60m는 위험군이라 고PD 구간에
+    쏠리기 때문이다. #16으로 60개월 비중이 25.1% → 13.9%로 줄어 이 쏠림이 더 심해졌다.
+
+    ⚠️ 입력은 **보정 전** OOF PD다 — isotonic 평탄구간이 경계를 삼켜 칸 인원이 기운다
+    (진단 C-4). 보정된 PD는 `E[XR]`의 `p̂`로만 쓴다.
+    """
+    return {
+        float(t): make_quantile_edges(pd_oof[term == t], n_quantiles)
+        for t in sorted(term.dropna().unique())
+    }
+
+
+def assign_quantile_by_term(
+    pd_values: pd.Series, term: pd.Series, edges_by_term: dict[float, np.ndarray]
+) -> pd.Series:
+    """term별 경계로 분위를 배정한다. Validation·Test에서 **재분위하지 않는다**."""
+    out = pd.Series(np.nan, index=pd_values.index, name="pd_quantile")
+    for t, edges in edges_by_term.items():
+        mask = term == t
+        if mask.any():
+            out.loc[mask] = assign_pd_quantile(pd_values.loc[mask], edges).to_numpy()
+    return out.astype("Int8")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from preprocessing.preprocessor import build_feature_table, split_from_manifest
+
+    print("피처 테이블 구성 중...")
+    X, y, meta = build_feature_table()
+    parts = split_from_manifest(X, y, meta)
+    X_tr, y_tr, _ = parts["train"]
+    X_va, y_va, _ = parts["validation"]
+    print(f"  Train {len(X_tr):,} / Validation {len(X_va):,}  피처 {X.shape[1]}개")
+
+    print(f"\n[Train {DEFAULT_N_FOLDS}-fold OOF]")
+    pd_oof, fold_auc, _ = compute_oof(X_tr, y_tr)
+    print(f"  fold AUC 평균 {np.mean(fold_auc):.5f} (표준편차 {np.std(fold_auc):.5f})")
+    print(f"  OOF 전체 AUC {roc_auc_score(y_tr, pd_oof):.5f}")
+
+    print("\n[최종 모델 — Train 전체 학습 → Validation 평가]")
+    final = train_model(X_tr, y_tr)
+    p_va = predict_default_probability(final, X_va)
+    print(f"  Validation AUC {roc_auc_score(y_va, p_va):.5f}   (확정 표본 기준 0.70대 — oof_diagnostics_kgj.md)")
+
+    print("\n[확률보정 — isotonic, Train OOF로 학습 → Validation 적용]")
+    calibrator = fit_calibrator(pd_oof, y_tr)
+    p_va_cal = apply_calibrator(calibrator, p_va)
+    for name, p in (("보정 전", p_va), ("보정 후", p_va_cal)):
+        m = calibration_metrics(y_va, p)
+        print(f"  {name}  AUC {m['auc']:.5f}  Brier {m['brier']:.5f}  "
+              f"ECE {m['ece_pp']:.3f}%p  MCE {m['mce_pp']:.3f}%p  편향 {m['bias_pp']:+.3f}%p")
