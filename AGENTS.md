@@ -192,6 +192,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 변수 전처리 방식 검증 (결측 티어 T0~T3, seasoning 편향) | `preprocessing_validation_kgj.md` |
 | 팀원 4인 검증문서 교차검증 (모형 구성·결측 처리 결론) | `preprocessing_crosscheck_kgj.md` |
 | **B팀 핸드오프 — 실현수익률 계산** (산출물 3종·1순위 조기상환 보정·작업 0/7~10) | `handoff_teamb_realized_return.md` |
+| **OOF 파이프라인 진단 3종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전) | `oof_diagnostics_kgj.md` |
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -235,6 +236,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/analysis/missing_scheme_comparison.py` | `preprocessing_crosscheck_kgj.md` (#13 ③) | `outputs/missing_scheme_comparison.csv` |
 | `src/analysis/realized_return_spec_check.py` | `decision_log.md` #20 · 이슈 #15 (탈락 캐스케이드·계산 가능 건수) | `outputs/realized_return_spec_check_cascade.csv`, `outputs/realized_return_spec_check_R_by_status_term.csv` |
 | `src/analysis/realized_return_sensitivity.py` | `decision_log.md` #18 (**재투자 가정 +107.5bp**) | `outputs/realized_return_sensitivity.csv` |
+| `src/analysis/auc_sample_filter_comparison.py` | `oof_diagnostics_kgj.md` (**AUC 0.71대 = #16 필터 이전 값**) | `outputs/auc_sample_filter_comparison.csv` |
 
 > 이들은 **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않고 자체 2분할·자체 seed 루프를 쓴다(의도된 차이).
 > AUC를 쓰지만 **승인/거절 기준을 정하는 데 쓰지 않으므로** Sharpe 규칙과 충돌하지 않는다.
@@ -245,13 +247,23 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 > `realized_return()`은 **#18 재투자 가정의 저장소 내 유일한 구현**이다 — B팀 작업의 출발점
 > (`outputs/reports/handoff_teamb_realized_return.md`).
 
-**③ 본 파이프라인** — 아직 뼈대. 여기에 "규칙"이 그대로 적용된다
+**③ 본 파이프라인** — 여기에 "규칙"이 그대로 적용된다
 
 | 위치 | 내용 | 상태 |
 | --- | --- | --- |
-| `src/preprocessing/loader.py`, `preprocessor.py` | 로딩·전처리 파이프라인 | **뼈대(TODO)** |
-| `src/analysis/model.py`, `sharpe_optimizer.py` | 모형 학습·threshold 탐색 | **뼈대(TODO)** |
+| `src/preprocessing/loader.py` | 원본 로딩·표본 필터(**723,563건 검증 내장**)·피처 컬럼 선택 | 동작 |
+| `src/preprocessing/preprocessor.py` | dtype 정리(문자열 수치 복원)·랜덤 6:2:2 층화분할 | 동작 |
+| `src/analysis/model.py` | XGBoost PD 모형·K-fold OOF·PD 분위 경계 | 동작 |
+| `src/analysis/realized_return.py` | 구조 A′ 실현수익률·`E[XR]`·`Var[XR]`·`q_score` | 동작 (**잠정 가정**) |
+| `src/analysis/oof_diagnostics.py` | 진단 C-1/C-2/C-3 — 설계 선택 실측 검증 | 동작 |
+| `src/analysis/sharpe_optimizer.py` | threshold 탐색 | **뼈대(TODO)** |
 | `src/viz/plots.py` | 차트 생성 | **뼈대(TODO)** |
+
+> ⚠️ `realized_return.py`는 미확정 3건을 **잠정값**으로 고정한다 — 국채 ⓒ발행시점 고정 ·
+> 수수료 0% · **조기상환 보정 0**. 보정이 0이라 정상상환분 `R`이 과대추정되고 `var_정상 = 0`이
+> 된다(#20 B팀 1순위). 가정은 전부 `ReturnAssumptions`로 **주입받으므로** 확정 시
+> 칸별 통계표와 threshold만 재계산하면 되고 **모형 재학습은 불필요**하다(#19·#20).
+> 산출물 파일명에 `ReturnAssumptions.label()`이 붙어 어느 가정인지 추적된다.
 
 **공통 유틸**
 
@@ -260,9 +272,16 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/utils/config.py` | `config.yaml` 로더 (경로·분할·seed 단일 출처) | 동작 |
 | `src/utils/logger.py` | 공통 로깅 | 동작 (**현재 아무도 쓰지 않음**) |
 
-> 뼈대 파일은 팀이 방법론을 확정하기 전이라 의도적으로 비워둔 것이다.
+> 남은 뼈대 파일은 팀이 방법론을 확정하기 전이라 의도적으로 비워둔 것이다.
 > 채우기 전에 `decision_log.md`에서 해당 항목이 확정됐는지 — 그리고 위 "현재 진행 단계"에서
 > **조건부 확정이 아닌지** — 먼저 확인한다.
+>
+> ⚠️ **변수 사전의 `is_pre_approval`이 확정 사항과 어긋나 있다.** 시트는 `grade`·`sub_grade`를
+> 미라벨(NaN)로, `int_rate`·`installment`·`funded_amnt`·`funded_amnt_inv`·`issue_d`·
+> `initial_list_status`를 **사후(0)** 로 두는데, #1이 이 8개를 사전으로 재분류했고 #17 ③이
+> `grade`·`sub_grade`·`int_rate` 투입을 확정했다. 시트를 그대로 믿으면 LC 조건변수가 전부 빠져
+> Lean 스펙이 된다. `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 이를 코드에서 보정하고 있으며,
+> **시트 개정은 열린 실행 항목**이다(`preprocessing_crosscheck_kgj.md` 10절).
 
 ### 규격·컨벤션
 

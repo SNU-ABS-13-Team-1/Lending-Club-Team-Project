@@ -49,6 +49,18 @@
       산출되므로 #18이 말한 "계산 스위치 하나"로 끝나지 않는다. 파일명·컬럼에 가정을 남긴다.
     - **분류 모델은 이 세부를 기다리지 않고 만들 수 있다** — 타깃이 이진 `loan_status`라 손실 정의가
       학습에 개입하지 않는다.
+  - ✅ **칸별 통계표 설계는 실측으로 검증됐다** (`oof_diagnostics_kgj.md`, 2026-07-30).
+    - `ρ(pd_oof, q_score) = −0.797` · `ρ(pd_oof, E[XR]) = −0.445` → **PD 랭킹과 실질적으로 다르다.**
+      `|ρ|`≈0.99였다면 칸별 통계표를 버리고 단순 PD threshold로 돌아가야 했으나 그 경우가 아니다.
+    - **`E[XR]`이 PD에 대해 비단조다** — 정점이 36m는 4분위, 60m는 2분위다. 최우량 분위는 금리도
+      낮아 기대 초과수익이 오히려 낮다. **"PD가 낮을수록 좋다"는 직관이 이 문제에서 틀린다.**
+    - 칸별 `int_rate` sd 중앙값 **2.88%p**(범위 최대 25%p) → **A′의 건별 계산이 실효 있다.**
+      순수 A였다면 이 산포가 전부 뭉개졌다.
+    - Validation 분위 인원 이탈 **최대 0.46%p**(±2%p 이내) → **Train 경계를 그대로 이전할 수 있고
+      fold는 5로 충분하다.**
+    - ⚠️ 부수 발견: **`mu_부도`는 PD 분위와 거의 무관하다**(폭 36m 1.7%p / 60m 0.8%p). 반면
+      term 간 차이는 **6.3%p**다. 구조 B(2단계 회귀) 기각이 옳았음을 뒷받침한다 — 부도 손실은
+      PD가 담은 정보로 설명되지 않는다. 그룹 축에서 실제로 일하는 것은 `term`이다.
   - ⚠️ **승인선 랭킹 기준은 미확정**이다 — `pd` 단독 / `E[XR]` / `q_score`(= `E[XR]/√Var[XR]`).
     세 기준은 **같은 중간 테이블에서 정렬만 바꾸면 나오므로 추가 학습 없이 비교**할 수 있다.
     **Validation에서만 비교해 승자를 사전 확정한 뒤 Test 1회** — 세 기준을 Test에서 비교하면
@@ -67,7 +79,12 @@
 - Threshold 확정 후에는 Train 전체(60%)로 모형을 재학습한 뒤 Test에 적용한다.
 - **사전/사후(pre/post-approval) 변수 구분을 피처 선택에 적용한다** (`decision_log.md` #1 확정). 투자자 관점이므로 `grade`·`sub_grade`·`int_rate`·`installment`·`funded_amnt`·`funded_amnt_inv`·`issue_d`·`initial_list_status`는 **사전 변수**다. 라벨 원본은 `data/processed/variable_dictionary_byGJ.xlsx`의 `is_pre_approval`.
   - **LC 조건변수(`grade`·`sub_grade`·`int_rate`)는 피처로 투입한다** (#17 ③, 2026-07-29 회의 확정).
-    ⚠️ 이에 따라 **최종 모형의 AUC 기준은 0.71대**다. 기존 문서의 0.68대는 조건변수를 뺀 Lean 스펙 값이므로 섞어 인용하지 않는다.
+    ⚠️ 기존 문서의 0.68대는 조건변수를 뺀 Lean 스펙 값이므로 섞어 인용하지 않는다.
+    ⚠️ **"조건변수 포함 시 0.71대"는 #16 만기필터 확정 이전 값이다** — 확정 표본에서 재측정하면
+    **0.70대**다(`oof_diagnostics_kgj.md`, 2026-07-30 실측 0.7024). 같은 피처·모델로 필터만 빼면
+    0.7283이 나와 **−2.1%p가 오롯이 필터 효과**임이 확인됐다(만기 미도래분의 조기부도 과대표집).
+    Lean 0.68은 이미 확정 표본 기준이므로(#13 ⑤), **확정 표본에서 조건변수 효과는 0.68 → 0.70**이다.
+    `decision_log.md` 정정은 팀 확인 후 한다.
 - **무위험수익률(Rf) — 참고논문 방식 확정** (#18): 거절한 대출의 자본은 **발행시점(`issue_d`)에 대출 만기와
   만기를 맞춘 미국채**(3년물/5년물)에 투자했다고 가정한다. 데이터는
   `data/processed/us_treasury_GS3_GS5_monthly_2007-06_to_2020-09.csv`.
@@ -86,13 +103,15 @@
 
 | 종류 | 파일 | 성격 |
 | --- | --- | --- |
-| **탐색·검증** (현재 전부 이쪽) | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
+| **탐색·검증** | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py`, `auc_sample_filter_comparison.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
 | **실현수익률 계산** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
 | **본 파이프라인** (아직 뼈대) | `model.py`, `sharpe_optimizer.py` | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
 
 > 인용 주의: 비교 스크립트가 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값이다.
 > **최종 모형 성능으로 인용하면 안 된다** (`decision_log.md` #13 ⑤).
-> 회의에서 조건변수 투입이 확정됐으므로(#17 ③) **최종 모형 기준은 0.71대**다.
+> 회의에서 조건변수 투입이 확정됐으므로(#17 ③) 최종 모형 기준은 그보다 높다 —
+> **확정 표본 실측 0.70대**다(`oof_diagnostics_kgj.md`). 문서에 남아 있는 "0.71대"는
+> #16 만기필터 이전 값이므로 인용하지 않는다.
 >
 > `macro_indicator_screening.py`는 거시지표 미사용 확정(#15)으로 **과거 산출물 재현 전용**이 됐다.
 >
