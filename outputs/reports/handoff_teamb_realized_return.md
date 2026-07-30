@@ -60,15 +60,29 @@ XR_정상,i = XR_계약,i + Δ̄_조기상환,d(i)      ← 이 보정항이 B�
 
 ## 2. 인계 자산 — 이미 만들어져 있는 코드
 
-**백지에서 시작하지 않아도 된다.** `src/analysis/`에 재현 스크립트 2종이 등재돼 있다 (이슈 #17).
+**백지에서 시작하지 않아도 된다.** 재현 스크립트 2종에 더해, **2026-07-30에 본 파이프라인 구현이
+들어왔다**(커밋 `c18a40b`).
 
-| 스크립트 | 하는 일 | B팀이 쓸 부분 |
-| --- | --- | --- |
-| `realized_return_spec_check.py` | 계산 명세가 전수 데이터에 적용 가능한지 10개 절로 실측 — 항등식, `K_i` 파싱, 탈락 캐스케이드, 국채 커버리지 | **제외 규칙과 탈락 건수의 근거.** 계산 불가 1,754건이 어디서 나오는지 |
-| `realized_return_sensitivity.py` | 명세를 실제 구현(`G(m)`·`F(a,T)`·`realized_return()`)해 민감도 3종 측정 | **`realized_return()` 함수 자체.** #18 재투자 가정의 저장소 내 유일한 구현 |
+| 파일 | 성격 | 하는 일 | B팀이 쓸 부분 |
+| --- | --- | --- | --- |
+| **`src/analysis/realized_return.py`** | **본 파이프라인** | **구조 A′ 전체** — 계약 `R`·부도 실현 `R`·칸별 통계·`E[XR]`·`Var[XR]`·`q_score` | **여기서 시작한다.** 갈아 끼울 곳은 `ReturnAssumptions` 하나뿐 |
+| `realized_return_spec_check.py` | 재현·검증 | 계산 명세가 전수 데이터에 적용 가능한지 10개 절로 실측 — 항등식, `K_i` 파싱, 탈락 캐스케이드, 국채 커버리지 | **제외 규칙과 탈락 건수의 근거.** 계산 불가 1,754건이 어디서 나오는지 |
+| `realized_return_sensitivity.py` | 재현·검증 | `G(m)`·`F(a,T)`·`realized_return()`으로 민감도 3종 측정 | **실측 실현 `R`의 구현.** 조기상환 보정항(= 실현 − 계약)을 재는 재료 |
 
-`realized_return()`은 `allocation`(배분 가정 3종) × `use_rates`(국채 재투자 / 0%) 스위치를 갖고 있다.
-**②의 계약 `R`은 아직 구현돼 있지 않다** — 여기에 얹으면 된다.
+### ⚠️ 계약 `R`은 이제 구현돼 있다 — 얹을 대상이 바뀌었다
+
+`realized_return.py`의 **`contract_return()`** 이 ②의 계약 `R`을 연금 종가 공식으로 계산한다
+(`W = installment · ((1+i)^T − 1) / i`, `R = (W/P)^(12/T) − 1`).
+`realized_return_sensitivity.py`의 `realized_return()`은 **실측 현금흐름 기준**이며
+`allocation`(배분 가정 3종) × `use_rates`(국채 재투자 / 0%) 스위치를 갖는다.
+
+**B팀 1순위 작업은 이 둘의 차이를 재는 것이다** — 칸별 `(실현 R − 계약 R)`의 평균·표준편차를 구해
+`ReturnAssumptions.prepayment_adjustment`에 넣으면 된다. 현재 값은 **0**(보정 없음)이라
+정상상환분 `R`이 과대추정되고 `var_정상 = 0`이다.
+
+가정은 전부 `ReturnAssumptions`(frozen dataclass)로 주입받으므로 — `reinvest` · `treasury_basis` ·
+`servicing_fee_annual` · `prepayment_adjustment` — **확정 시 칸별 통계표와 threshold만 재계산**하면 되고
+**모형 재학습은 불필요**하다(#19·#20). 산출물 파일명에 `label()`이 붙어 어느 가정인지 추적된다.
 
 실행: `/opt/anaconda3/bin/python src/analysis/realized_return_sensitivity.py`
 (⚠️ macOS 시스템 `python3`가 아니라 conda base — `AGENTS.md` 「실행 환경」)
@@ -175,16 +189,17 @@ XR_정상,i = XR_계약,i + Δ̄_조기상환,d(i)      ← 이 보정항이 B�
   건별 등가중 평균인지, `funded_amnt` 가중인지, 가중이 분산 계산에도 들어가는지가 정해져야
   `sharpe_optimizer.py`를 쓸 수 있다.
 
-### 작업 9 — `docs/architecture.md` 흐름도 확장
+### 작업 9 — `docs/architecture.md` 흐름도 확장 — ✅ **완료 (2026-07-30)**
 
-현재 Mermaid 흐름도에 실현수익률 경로(원본 → 건별 `R` → 칸별 통계표 → `E[XR]`·`Var[XR]` → threshold)가
-빠져 있다. A′ 구조를 반영해 확장한다.
+실현수익률 경로가 흐름도에 반영됐다 — `A1 -.사후 컬럼.-> D2`(realized_return.py) → `D3`(threshold),
+진단 노드 `D5`(oof_diagnostics.py) 포함. 2절 흐름도의 `RET1`/`RET2`도 A′ 구조로 갱신됐다.
 
 ### 작업 10 — Recovery 규칙과 `GS1M` 수집
 
 - **Recovery 시점 `K+6`**: 부도 회수액을 최종납입 6개월 후에 수령한다고 보는 규칙.
-  현재 `realized_return_sensitivity.py:97`(`f_rec = G_T / g(mi0 + K + 6)`)에만 있고
-  **어느 문서에도 근거가 기록돼 있지 않다.** `decision_log.md` #4에 근거와 함께 남긴다.
+  현재 `realized_return_sensitivity.py:97`(`f_rec = G_T / g(mi0 + K + 6)`)과
+  `realized_return.py`의 `RECOVERY_LAG_MONTHS = 6`에 **코드로만** 있고,
+  **어느 문서에도 근거(왜 6개월인가)가 기록돼 있지 않다.** `decision_log.md` #4에 근거와 함께 남긴다.
 - **만기 초과 구간 `GS1M`**: `K > T`인 건(계약만기 후 납입)은 만기 이후 구간을 굴릴 금리가 필요하다.
   `GS1M`(1개월물)을 쓰기로 한 규칙도 #4에 기록한다.
 - **`GS1M` 수집** — `docs/macro_indicators_spec.md` 규격에 맞춰 `data/processed/`에 저장 +

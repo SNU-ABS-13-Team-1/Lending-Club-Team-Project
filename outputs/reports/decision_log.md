@@ -520,7 +520,10 @@
 - `R` 계산 불가 1,754건(#16)·잔여 `Current`(약 0.06%)의 통계표 산출 시 취급 — 제외 + 감사 테이블 보존
 
 ### 실행 항목
-- 확정된 규칙으로 `src/preprocessing/preprocessor.py` 구현 (현재 뼈대)
+- ~~확정된 규칙으로 `src/preprocessing/preprocessor.py` 구현 (현재 뼈대)~~
+  → **완료 (2026-07-30, 커밋 `7e1cb9d`·`c18a40b`)**. `loader.py`·`preprocessor.py`·`model.py`·
+  `realized_return.py`·`oof_diagnostics.py`가 동작한다. **남은 뼈대는 `sharpe_optimizer.py`·`src/viz/plots.py`**
+  이며, 전자는 승인선 랭킹 기준(위 미결)이 정해져야 완성된다.
 - 변수분류 시트 개정 (`preprocessing_crosscheck_kgj.md` 10절 "시트 수정 항목")
 - 팀원 3인 검증 문서 PR merge (`preprocessing_review_rsh` / `_ymg` / `missing_value_analysis`)
 - Lending Club 관련 추가 문헌 확인

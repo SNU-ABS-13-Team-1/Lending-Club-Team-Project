@@ -104,8 +104,21 @@
 | 종류 | 파일 | 성격 |
 | --- | --- | --- |
 | **탐색·검증** | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py`, `auc_sample_filter_comparison.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
-| **실현수익률 계산** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
-| **본 파이프라인** (아직 뼈대) | `model.py`, `sharpe_optimizer.py` | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
+| **실현수익률 검증** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
+| **본 파이프라인** | `model.py` (동작) · `realized_return.py` (동작, **잠정 가정**) · `oof_diagnostics.py` (동작) · `sharpe_optimizer.py` (**뼈대(TODO)**) | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
+
+**본 파이프라인 모듈이 무엇을 담당하는가** (2026-07-30 구현, 커밋 `c18a40b`)
+
+| 모듈 | 담당 | 주요 함수 |
+| --- | --- | --- |
+| `model.py` | XGBoost PD 모형 · K-fold OOF · PD 분위 경계 | `train_model()`, `compute_oof()`, `make_quantile_edges()`, `assign_pd_quantile()` |
+| `realized_return.py` | 구조 A′ 실현수익률 · `E[XR]` · `Var[XR]` · `q_score` | `contract_return()`(정상상환 건별), `realized_return_defaulted()`, `default_cell_stats()`, `expected_excess_return()`, `variance_excess_return()`, `q_score()` |
+| `oof_diagnostics.py` | 설계 선택 실측 검증 C-1/C-2/C-3 | `main()` — 산출물 4종은 루트 `AGENTS.md` 코드 색인 ③ 참고 |
+| `sharpe_optimizer.py` | threshold 탐색 | **미구현.** 실현수익률을 여기서 다시 정의하지 말고 `realized_return.py`가 낸 `XR`을 받아 정렬·탐색만 한다 |
+
+> `realized_return.py`의 가정은 전부 `ReturnAssumptions`(frozen dataclass)로 **주입받는다** —
+> `reinvest`("treasury"/"cash") · `treasury_basis` · `servicing_fee_annual` · `prepayment_adjustment`.
+> 손실값을 상수로 박지 않는다는 위 규칙의 구현이며, 산출물 파일명에 `label()`이 붙는다.
 
 > 인용 주의: 비교 스크립트가 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값이다.
 > **최종 모형 성능으로 인용하면 안 된다** (`decision_log.md` #13 ⑤).
@@ -115,9 +128,11 @@
 >
 > `macro_indicator_screening.py`는 거시지표 미사용 확정(#15)으로 **과거 산출물 재현 전용**이 됐다.
 >
-> `realized_return_sensitivity.py`의 `realized_return()`은 **#18 재투자 가정의 저장소 내 유일한 구현**이다
-> (`allocation` × `use_rates` 스위치). 구조 A′의 정상상환분에 필요한 **계약 `R`은 아직 구현돼 있지 않다** —
-> 실현 `R`과의 차이가 B팀 1순위 미결인 조기상환 보정항이다.
+> `realized_return_sensitivity.py`의 `realized_return()`은 **실측 현금흐름 기준으로 #18 재투자 가정을
+> 검증한** 구현이다(`allocation` × `use_rates` 스위치, 민감도 표 재현 전용).
+> 구조 A′의 **계약 `R`은 `realized_return.py`의 `contract_return()`에 구현돼 있다**(연금 종가 공식).
+> 남은 미결은 그 계약 `R`과 **실현 `R`의 차이인 조기상환 보정항**이며, 현재 `prepayment_adjustment = 0`
+> 으로 고정돼 있어 정상상환분 `R`이 과대추정되고 `var_정상 = 0`이 된다 — B팀 1순위(#20).
 > 인계 내용은 `outputs/reports/handoff_teamb_realized_return.md`.
 
 ## 참고

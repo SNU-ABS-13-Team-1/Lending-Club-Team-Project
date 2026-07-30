@@ -9,12 +9,13 @@
 (`src/analysis/AGENTS.md` 「이 폴더 스크립트의 성격 구분」).
 
 재현 대상: `decision_log.md` #18 / `AGENTS.md`의 **"국채 재투자 가정은 R을 평균 +107.5bp 올린다"**.
-`realized_return()`은 #18 재투자 가정(`R = (W/P)^(12/T) − 1`, `W = Σ CFₘ·F(m,T)`)의
-저장소 내 유일한 구현이다 — `use_rates=False`가 재투자 0% 민감도 시나리오에 해당한다.
+`realized_return()`은 #18 재투자 가정(`R = (W/P)^(12/T) − 1`, `W = Σ CFₘ·F(m,T)`)을
+**실측 현금흐름 기준으로** 구현한 것이다 — `use_rates=False`가 재투자 0% 민감도 시나리오에 해당한다.
 
-⚠️ 여기서 계산하는 R은 **건별 실현수익률**이다. #20 구조 A′의 정상상환분에 필요한
-**계약 R**(만기까지 납입 가정)은 아직 구현돼 있지 않다 — 둘의 차이가 B팀 1순위 미결인
-조기상환 보정항이다. `outputs/reports/handoff_teamb_realized_return.md` 참고.
+⚠️ 여기서 계산하는 R은 **건별 실현수익률**이다. #20 구조 A′의 정상상환분에 쓰는
+**계약 R**(만기까지 납입 가정)은 `src/analysis/realized_return.py`의 `contract_return()`에
+구현돼 있다 — **둘의 차이가 B팀 1순위 미결인 조기상환 보정항**이며, 이 스크립트가 그 차이를
+재는 재료다. `outputs/reports/handoff_teamb_realized_return.md` 참고.
 
 ⚠️ `data/raw/`는 읽기 전용이다 — 이 스크립트는 원본을 읽기만 하고 결과는 `outputs/`에 쓴다.
 """

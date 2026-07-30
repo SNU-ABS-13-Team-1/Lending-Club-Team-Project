@@ -244,7 +244,9 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 > 대부분 `data/raw/lending_club_2020_train.csv`(1.2GB, git 미추적)를 입력으로 받으며 실행에 수 분~수십 분 걸린다.
 >
 > ⚠️ 실현수익률 2종은 AUC를 쓰지 않는다(모형 학습 없음, pandas/numpy만). `realized_return_sensitivity.py`의
-> `realized_return()`은 **#18 재투자 가정의 저장소 내 유일한 구현**이다 — B팀 작업의 출발점
+> `realized_return()`은 **실측 현금흐름 기준으로 #18 재투자 가정을 검증한** 구현이다(민감도 표 재현 전용).
+> **본 파이프라인의 구현은 `src/analysis/realized_return.py`** 로, 계약 `R`(`contract_return()`)과
+> 부도 실현 `R`(`realized_return_defaulted()`)을 모두 담는다 — B팀 작업의 출발점은 이쪽이다
 > (`outputs/reports/handoff_teamb_realized_return.md`).
 
 **③ 본 파이프라인** — 여기에 "규칙"이 그대로 적용된다
@@ -264,6 +266,14 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 > 된다(#20 B팀 1순위). 가정은 전부 `ReturnAssumptions`로 **주입받으므로** 확정 시
 > 칸별 통계표와 threshold만 재계산하면 되고 **모형 재학습은 불필요**하다(#19·#20).
 > 산출물 파일명에 `ReturnAssumptions.label()`이 붙어 어느 가정인지 추적된다.
+>
+> `oof_diagnostics.py`의 산출물 4종(진단 근거는 `oof_diagnostics_kgj.md`):
+> `outputs/oof_c1_cell_means_{label}.csv`(칸별 `pd`·`xr_normal`·`E[XR]`·`q_score`·`int_rate`) ·
+> `outputs/oof_c2_int_rate_dispersion.csv`(칸별 금리 산포) ·
+> `outputs/oof_c3_quantile_share.csv`(Train/Validation 분위 인원 비율) ·
+> `outputs/oof_default_cell_stats_{label}.csv`(칸별 `mu_부도`·`var_부도`).
+> `{label}`은 `ReturnAssumptions.label()`이며 현재는 `provisional_treasury_issue_fixed_fee0pct`다 —
+> **재투자 가정을 바꾸면 파일명이 바뀐다**(#18, 통계표까지 다시 만들어야 하므로 의도된 설계).
 
 **공통 유틸**
 
