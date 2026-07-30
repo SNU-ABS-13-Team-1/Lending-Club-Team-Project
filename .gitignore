@@ -27,6 +27,11 @@ data/processed/excess_return*.csv
 # 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
 share/
 
+# 팀 공유용 전처리 데이터셋 (parquet) — 전수 72만 행이라 100MB 제한에 걸린다.
+# Slack 등 팀 채널로 공유하고, 필요하면 export_shared_dataset.py로 재생성한다.
+# 분할 정의 자체는 split_manifest_*.csv.gz가 git에 있으므로 재현에 문제없다.
+data/processed/shared/
+
 # 에디터 로컬 설정 — 개인 환경이므로 공유하지 않음
 .vscode/
 
