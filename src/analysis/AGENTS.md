@@ -6,9 +6,18 @@
 
 ## 규칙
 - **모형은 XGBoost 하나다** (`decision_log.md` #17 ①, 2026-07-29 회의 확정). 로지스틱 회귀는 폐기됐다.
-- **대조군은 전부 승인(approve-all) 전략**이다 (#17 ②). 성과 보고의 헤드라인은 절대 Sharpe가 아니라
-  **Δ Sharpe = (모형 전략) − (approve-all)** 이다 — 재투자 가정이 양쪽을 똑같이 밀어올리므로
-  절대값은 가정 효과를 포함한다(#18).
+- **대조군은 전부 승인(approve-all) 전략**이다 (#17 ②). 성과 보고의 **헤드라인은
+  Δ Sharpe = (모형 전략) − (approve-all)** 이다 — 재투자 가정이 양쪽을 밀어올리므로 절대값은
+  가정 효과를 포함한다(#18).
+  - ⚠️ **그러나 절대 Sharpe도 반드시 병기한다.** "절대 Sharpe를 보고하지 않는다"가 아니라
+    **"절대 Sharpe를 모형의 기여분으로 해석하지 않는다"** 가 정확한 규칙이다. 수업 기준선이
+    절대 수준이기 때문이다(`README.md`: "샤프비율은 0.2~0.4 정도 나오면 옳게 한 것").
+    실측 **모형 0.279 · approve-all 0.220**으로 그 범위에 들어온다(`sharpe_threshold_kgj.md`).
+  - Δ를 헤드라인으로 쓰는 것이 **최적화 목표를 바꾸지는 않는다** — approve-all Sharpe는 `τ`에
+    대해 상수이므로 `argmax_τ [Sharpe(τ) − 상수] = argmax_τ Sharpe(τ)` 다.
+  - ✅ **#18의 "가정이 양쪽을 똑같이 밀어올린다"는 방향은 맞고 정확히는 틀리다**(실측):
+    재투자 가정을 바꿀 때 절대값은 20~30%, Δ는 **12~18%** 움직인다. Δ가 더 안정적이지만 상쇄가
+    완전하지 않다. **기준 간 순위는 두 가정에서 동일**하고 **`τ*`는 크게 움직인다**(0.226 → 0.158).
 - 승인/거절 threshold는 **오직 Sharpe Ratio 극대화**로 결정한다. accuracy, AUC 등 일반 분류 지표로 결정하지 않는다.
   - 단, **탐색·검증 목적의 상대 비교**(전처리 방식 A vs B 중 무엇이 나은지)에는 AUC를 써도 된다. 금지되는 것은 AUC로 **승인/거절 기준을 정하는 것**이다. 기존 비교 스크립트 4종이 이 예외에 해당한다.
 - **표본은 만기 + 버퍼 6개월 필터를 적용한 723,563건**이다 (#16). `issue_d + term ≤ 2020-04`.
@@ -56,15 +65,36 @@
       낮아 기대 초과수익이 오히려 낮다. **"PD가 낮을수록 좋다"는 직관이 이 문제에서 틀린다.**
     - 칸별 `int_rate` sd 중앙값 **2.88%p**(범위 최대 25%p) → **A′의 건별 계산이 실효 있다.**
       순수 A였다면 이 산포가 전부 뭉개졌다.
-    - Validation 분위 인원 이탈 **최대 0.46%p**(±2%p 이내) → **Train 경계를 그대로 이전할 수 있고
+    - Validation 분위 인원 이탈 **최대 0.52%p**(±2%p 이내) → **Train 경계를 그대로 이전할 수 있고
       fold는 5로 충분하다.**
     - ⚠️ 부수 발견: **`mu_부도`는 PD 분위와 거의 무관하다**(폭 36m 1.7%p / 60m 0.8%p). 반면
       term 간 차이는 **6.3%p**다. 구조 B(2단계 회귀) 기각이 옳았음을 뒷받침한다 — 부도 손실은
       PD가 담은 정보로 설명되지 않는다. 그룹 축에서 실제로 일하는 것은 `term`이다.
-  - ⚠️ **승인선 랭킹 기준은 미확정**이다 — `pd` 단독 / `E[XR]` / `q_score`(= `E[XR]/√Var[XR]`).
+  - ⚠️ **확률보정(isotonic) — PD의 두 역할을 나눈다** (진단 C-4, 2026-07-30 실측):
+    | 쓰임 | 어느 PD |
+    | --- | --- |
+    | PD 분위 **경계·배정**, 승인선 **점수**로서의 `pd` | **보정 전** |
+    | `E[XR]`·`Var[XR]`의 `p̂` (**확률 값**) | **보정 후** |
+
+    `E[XR] = (1−p̂)·XR_정상 + p̂·mu_부도`가 `p̂`를 확률 값으로 쓰므로 보정 오차에
+    `(mu_정상−mu_부도)`≈20%p가 곱해져 `E[XR]`에 직접 들어간다. **AUC로는 안 잡힌다.**
+    보정은 Validation ECE를 **0.710 → 0.265%p**, 최악 구간(MCE)을 **2.900 → 0.675%p**로 줄이고
+    AUC는 −0.00004만 움직인다. Train OOF PD가 곧 학습 데이터라 **추가 학습 0회**다.
+    - ⚠️ **"isotonic은 단조변환이라 분위 경계가 바뀌지 않는다"는 틀렸다.** 계단함수라 고유값이
+      42.8만 → 125개로 뭉치고, 보정된 PD로 자르면 **칸 인원이 최대 3.13%p 기운다**(보정 전은
+      0.001%p). 그래서 위 역할 분리가 필요하다. `decision_log.md` 「부수 결정」 정정 대상.
+    - 구현: `model.py`의 `fit_calibrator()`·`apply_calibrator()`·`calibration_metrics()`·
+      `calibration_noise_floor()`. ECE 판정은 **바닥값**(완벽 보정 시 나오는 ECE, 여기서는
+      0.126%p)과 대조해서 한다 — 절대 기준 0.5%p는 표본이 작으면 바닥값과 구분되지 않는다.
+  - ⏳ **승인선 랭킹 기준 — 근거 확보, 팀 확정 대기** (`pd` 단독 / `E[XR]` / `q_score`).
     세 기준은 **같은 중간 테이블에서 정렬만 바꾸면 나오므로 추가 학습 없이 비교**할 수 있다.
     **Validation에서만 비교해 승자를 사전 확정한 뒤 Test 1회** — 세 기준을 Test에서 비교하면
     아래 "Test set으로 모형을 재조정하지 않는다" 규칙 위반이다.
+    - 실측(`sharpe_threshold_kgj.md`): **`q_score` 0.27865 > `pd` 0.27385 > `E[XR]` 0.26907**
+      (Δ +0.0587 / +0.0539 / +0.0491, 승인율 60.4% / 68.0% / 73.6%). **재투자 가정 2종에서
+      순위가 동일**하다. `E[XR]`이 지는 이유는 분산을 안 봐서 sd가 7.75%까지 올라가기 때문이다.
+    - ⚠️ `var_정상 = 0`인 잠정 구현 기준이다. 조기상환 보정이 들어가면 `q_score` 분모가 커지므로
+      **이 우열은 다시 확인해야 한다**(#20 B팀 1순위).
     - 어느 기준이든 threshold는 **점수의 이론값이 아니라 Validation 실현 XR로 계산한 실제 Sharpe**
       그리드서치로 정한다. 개별 대출 `q_score` 최대화는 포트폴리오 Sharpe 최대화와 같은 문제가 아니다.
     - threshold 곡선에는 **Sharpe·Δ Sharpe와 함께 승인율을 반드시 병기**한다. 위 Sharpe 정의는
@@ -105,16 +135,24 @@
 | --- | --- | --- |
 | **탐색·검증** | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py`, `auc_sample_filter_comparison.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
 | **실현수익률 검증** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
-| **본 파이프라인** | `model.py` (동작) · `realized_return.py` (동작, **잠정 가정**) · `oof_diagnostics.py` (동작) · `sharpe_optimizer.py` (**뼈대(TODO)**) | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
+| **본 파이프라인** | `model.py` (동작) · `realized_return.py` (동작, **잠정 가정**) · `oof_diagnostics.py` (동작) · `sharpe_optimizer.py` (동작, **잠정 가정**) | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
 
 **본 파이프라인 모듈이 무엇을 담당하는가** (2026-07-30 구현, 커밋 `c18a40b`)
 
 | 모듈 | 담당 | 주요 함수 |
 | --- | --- | --- |
-| `model.py` | XGBoost PD 모형 · K-fold OOF · PD 분위 경계 | `train_model()`, `compute_oof()`, `make_quantile_edges()`, `assign_pd_quantile()` |
-| `realized_return.py` | 구조 A′ 실현수익률 · `E[XR]` · `Var[XR]` · `q_score` | `contract_return()`(정상상환 건별), `realized_return_defaulted()`, `default_cell_stats()`, `expected_excess_return()`, `variance_excess_return()`, `q_score()` |
-| `oof_diagnostics.py` | 설계 선택 실측 검증 C-1/C-2/C-3 | `main()` — 산출물 4종은 루트 `AGENTS.md` 코드 색인 ③ 참고 |
-| `sharpe_optimizer.py` | threshold 탐색 | **미구현.** 실현수익률을 여기서 다시 정의하지 말고 `realized_return.py`가 낸 `XR`을 받아 정렬·탐색만 한다 |
+| `model.py` | XGBoost PD 모형 · K-fold OOF · **isotonic 보정** · PD 분위 경계 | `train_model()`, `compute_oof()`, `fit_calibrator()`, `apply_calibrator()`, `calibration_metrics()`, `calibration_table()`, `calibration_noise_floor()`, `make_quantile_edges()`, `assign_pd_quantile()`, `quantile_edges_by_term()`, `assign_quantile_by_term()` |
+| `realized_return.py` | 구조 A′ 실현수익률 · `E[XR]` · `Var[XR]` · `q_score` | `contract_return()`(정상상환 건별), `realized_return_defaulted()`, `build_excess_returns()`(`xr_normal`·`xr_default`·**`xr_realized`**), `default_cell_stats()`, `expected_excess_return()`, `variance_excess_return()`, `q_score()` |
+| `oof_diagnostics.py` | 설계 선택 실측 검증 C-1/C-2/C-3/**C-4** | `main()` — 산출물 5종은 루트 `AGENTS.md` 코드 색인 ③ 참고 |
+| `sharpe_optimizer.py` | threshold 탐색 · 랭킹 기준 비교 | `sharpe_ratio()`, `sharpe_curve()`(누적합으로 **모든 컷** 평가), `find_optimal_threshold()`, `approve_all_sharpe()`, `compare_ranking_criteria()`, `repeat_threshold_search()`(K=50, **미실행**), `build_validation_scores()`, `scores_for_assumptions()` |
+
+> `sharpe_optimizer.py`가 지키는 것들 — 고칠 때 깨뜨리지 말 것:
+> - **Sharpe는 기대값이 아니라 Validation 실현 `XR`(`xr_realized`)로** 계산한다. 점수는 승인선을
+>   그을 때만 쓴다 — 기대값으로 재면 모형이 자기 예측으로 자기를 채점한다.
+> - **거절 건은 표본에서 빼지 않고 `XR = 0`으로 남긴다.** 실측으로 빼면 Sharpe가 **+0.24** 뛴다.
+> - **격자를 찍지 않는다.** 정렬 후 `k=1..n`을 누적합으로 전부 평가한다(brute force와 5e-16 일치).
+> - 세 기준을 **같은 유효 표본**에서 비교한다(`q_score` NaN 51건을 세 기준 모두에서 제외).
+> - 칸별 통계표·분위 경계는 **Train에서만** 만들어 Validation에 적용한다(재분위 금지).
 
 > `realized_return.py`의 가정은 전부 `ReturnAssumptions`(frozen dataclass)로 **주입받는다** —
 > `reinvest`("treasury"/"cash") · `treasury_basis` · `servicing_fee_annual` · `prepayment_adjustment`.

@@ -55,7 +55,8 @@
 | └ 조기상환 보정 방식 | ❌ **미확정** — B팀 1순위 | #20 |
 | └ 국채 금리 ⓐ실제경로/ⓑ상수/ⓒ발행시점 고정 | ❌ 미확정 (ⓒ 권고, 잠정 진행 가능) | #18·#20 |
 | └ 서비스수수료(~1%) 반영 | ❌ 미확정 (잠정 0%로 진행 가능) | #20 |
-| 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ❌ 미확정 — Validation 비교 후 확정 | #5·#20 |
+| 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ⏳ **근거 확보 — 팀 확정 대기** (`q_score` 우세) | #5·#20 |
+| 확률보정 (isotonic) | ⏳ **구현·검증 완료 — 팀 확정 대기** | C-4 |
 | 시각화 규칙 | ❌ 미착수 | — |
 
 > **A팀은 미확정 항목을 기다릴 필요가 없다.** 분류 모델의 타깃은 이진 `loan_status`이므로
@@ -192,7 +193,8 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 변수 전처리 방식 검증 (결측 티어 T0~T3, seasoning 편향) | `preprocessing_validation_kgj.md` |
 | 팀원 4인 검증문서 교차검증 (모형 구성·결측 처리 결론) | `preprocessing_crosscheck_kgj.md` |
 | **B팀 핸드오프 — 실현수익률 계산** (산출물 3종·1순위 조기상환 보정·작업 0/7~10) | `handoff_teamb_realized_return.md` |
-| **OOF 파이프라인 진단 3종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전) | `oof_diagnostics_kgj.md` |
+| **OOF 파이프라인 진단 4종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전·**확률보정**) | `oof_diagnostics_kgj.md` |
+| **Sharpe threshold 탐색** (랭킹 기준 3종 비교·Δ의 재투자 가정 안정성·절대 Sharpe 병기 근거) | `sharpe_threshold_kgj.md` |
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -204,6 +206,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 파일 | 내용 |
 | --- | --- |
 | `lending_club_2020_train_sample_9000.csv` | 대출 표본 9,000건 — **분석에 쓰지 않음**(과거 산출물 재현용) |
+| `split_manifest_6_2_2_seed42.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다 |
 | `variable_dictionary_byGJ.xlsx` | 변수 사전 + 사전/사후 라벨 (**단일 원본**) |
 | `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
 | `macro_*_monthly_*.csv` | 거시경제지표 (독립변수 후보) |
@@ -224,6 +227,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | --- | --- | --- |
 | `src/preprocessing/fetch_macro_*.py` (4개) | 거시지표 수집 (다운로드+검증+저장) | 동작 |
 | `src/preprocessing/label_pre_post_by_rule.py` | 규칙 기반 사전/사후 라벨링 | 동작 |
+| `src/preprocessing/export_split_manifest.py` | **6:2:2 분할 매니페스트** 생성·체크섬 대조(`--verify`) | 동작 |
 
 **② 재현·검증** — 문서에 실린 표를 다시 만든다. 문서 수치를 의심할 때 여기부터 돌린다
 
@@ -255,10 +259,10 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | --- | --- | --- |
 | `src/preprocessing/loader.py` | 원본 로딩·표본 필터(**723,563건 검증 내장**)·피처 컬럼 선택 | 동작 |
 | `src/preprocessing/preprocessor.py` | dtype 정리(문자열 수치 복원)·랜덤 6:2:2 층화분할 | 동작 |
-| `src/analysis/model.py` | XGBoost PD 모형·K-fold OOF·PD 분위 경계 | 동작 |
+| `src/analysis/model.py` | XGBoost PD 모형·K-fold OOF·**isotonic 확률보정**·PD 분위 경계 | 동작 |
 | `src/analysis/realized_return.py` | 구조 A′ 실현수익률·`E[XR]`·`Var[XR]`·`q_score` | 동작 (**잠정 가정**) |
-| `src/analysis/oof_diagnostics.py` | 진단 C-1/C-2/C-3 — 설계 선택 실측 검증 | 동작 |
-| `src/analysis/sharpe_optimizer.py` | threshold 탐색 | **뼈대(TODO)** |
+| `src/analysis/oof_diagnostics.py` | 진단 C-1/C-2/C-3/**C-4** — 설계 선택 실측 검증 | 동작 |
+| `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교 | 동작 |
 | `src/viz/plots.py` | 차트 생성 | **뼈대(TODO)** |
 
 > ⚠️ `realized_return.py`는 미확정 3건을 **잠정값**으로 고정한다 — 국채 ⓒ발행시점 고정 ·
@@ -267,11 +271,24 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 > 칸별 통계표와 threshold만 재계산하면 되고 **모형 재학습은 불필요**하다(#19·#20).
 > 산출물 파일명에 `ReturnAssumptions.label()`이 붙어 어느 가정인지 추적된다.
 >
-> `oof_diagnostics.py`의 산출물 4종(진단 근거는 `oof_diagnostics_kgj.md`):
+> ⚠️ **PD에는 두 역할이 있고 서로 다른 값을 쓴다** (진단 C-4, 2026-07-30 실측):
+> **분위 경계·배정과 승인선 점수는 보정 전 PD**, **`E[XR]`·`Var[XR]`의 `p̂`만 isotonic 보정 후 PD**다.
+> 보정은 Validation ECE를 0.710 → 0.265%p로 줄이지만(AUC는 −0.00004), 계단함수라 고유값이
+> 42.8만 → 125개로 뭉쳐서 **보정된 PD로 분위를 자르면 칸 인원이 최대 3.13%p 기운다.**
+> ⚠️ `decision_log.md` 「부수 결정」의 *"isotonic은 단조변환이라 분위 경계가 바뀌지 않는다"* 는
+> **틀렸다** — 정정이 필요하다(팀 확인 후).
+>
+> `oof_diagnostics.py`의 산출물 5종(진단 근거는 `oof_diagnostics_kgj.md`):
 > `outputs/oof_c1_cell_means_{label}.csv`(칸별 `pd`·`xr_normal`·`E[XR]`·`q_score`·`int_rate`) ·
 > `outputs/oof_c2_int_rate_dispersion.csv`(칸별 금리 산포) ·
 > `outputs/oof_c3_quantile_share.csv`(Train/Validation 분위 인원 비율) ·
+> `outputs/oof_c4_calibration.csv`(보정 전/후 지표·ECE 바닥값·칸 균형) ·
 > `outputs/oof_default_cell_stats_{label}.csv`(칸별 `mu_부도`·`var_부도`).
+>
+> `sharpe_optimizer.py`의 산출물(근거는 `sharpe_threshold_kgj.md`):
+> `outputs/sharpe_threshold_comparison.csv` — 랭킹 기준 3종 + approve-all × 재투자 가정 2종의
+> `τ*`·승인율·**절대 Sharpe**·Δ Sharpe. 실측은 `q_score`(Sharpe 0.279 · Δ +0.059)를 지지하나
+> **랭킹 기준 확정은 팀 결정**이다(#5·#20).
 > `{label}`은 `ReturnAssumptions.label()`이며 현재는 `provisional_treasury_issue_fixed_fee0pct`다 —
 > **재투자 가정을 바꾸면 파일명이 바뀐다**(#18, 통계표까지 다시 만들어야 하므로 의도된 설계).
 

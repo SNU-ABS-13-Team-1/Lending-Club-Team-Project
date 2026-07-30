@@ -313,6 +313,47 @@ def q_score(expected_xr: pd.Series, variance_xr: pd.Series) -> pd.Series:
     return (expected_xr / sd.replace(0, np.nan)).rename("q_score")
 
 
+def build_excess_returns(
+    outcome: pd.DataFrame, assumptions: ReturnAssumptions = ReturnAssumptions()
+) -> pd.DataFrame:
+    """건별 `rf` · `XR_정상`(계약) · `XR_부도`(실현) · `XR_실현`.
+
+    `XR_정상`은 **부도 건에도 정의된다** — "계약대로 갚았다면 얼마였을까"라서 실현 여부와
+    무관하게 계산되며, `E[XR] = (1−p̂)·XR_정상 + p̂·mu_부도`의 첫 항이 바로 그 값이다.
+
+    `xr_realized`는 그와 달리 **실제로 벌어진 결과**다 — 부도 건은 실현 현금흐름,
+    정상 건은 계약 현금흐름. Sharpe는 기대값이 아니라 **이 값**으로 계산한다
+    (`src/analysis/AGENTS.md`: "점수의 이론값이 아니라 Validation 실현 XR로").
+
+    ⚠️ 조기상환 보정이 잠정 0이라 정상상환 건의 `xr_realized`는 **과대추정**이다(#20 1순위).
+    """
+    rf = issue_risk_free_rate(outcome["issue_month_ord"], outcome["term"])
+
+    r_contract = contract_return(
+        installment=outcome["installment"],
+        funded_amnt=outcome["funded_amnt"],
+        term_months=outcome["term"],
+        reinvest_rate=rf,
+        assumptions=assumptions,
+    )
+    r_default = realized_return_defaulted(outcome, reinvest_rate=rf, assumptions=assumptions)
+
+    xr_normal = r_contract - rf
+    xr_default = (r_default - rf).where(outcome["is_default"] == 1)
+
+    return pd.DataFrame(
+        {
+            "rf": rf,
+            "xr_normal": xr_normal,
+            "xr_default": xr_default,
+            "xr_realized": xr_default.where(outcome["is_default"] == 1, xr_normal),
+            "term": outcome["term"],
+            "int_rate": outcome["int_rate"],
+            "is_default": outcome["is_default"],
+        }
+    )
+
+
 def build_return_inputs() -> pd.DataFrame:
     """수익률 계산에 필요한 **사후 컬럼**을 분석 표본(723,563건)에 맞춰 로드한다.
 

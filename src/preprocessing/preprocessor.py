@@ -194,6 +194,131 @@ def split_6_2_2(
     }
 
 
+def load_split_manifest(seed: int | None = None) -> pd.Series:
+    """`id → split` 매니페스트를 읽는다. 인덱스는 `id`(문자열)다.
+
+    매니페스트는 `src/preprocessing/export_split_manifest.py`가 만든다. 없으면 예외다 —
+    **임의로 seed 분할로 대체하지 않는다.** 조용히 다른 분할로 넘어가면 팀원 간 Test가
+    어긋나는데 아무도 모르게 된다.
+    """
+    from preprocessing.export_split_manifest import manifest_path
+
+    cfg = load_config()
+    seed = cfg.random_seed.default if seed is None else seed
+    path = manifest_path(seed)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"분할 매니페스트가 없다: {path}\n"
+            "먼저 `python src/preprocessing/export_split_manifest.py`로 만들거나, "
+            "팀 저장소에서 받아라."
+        )
+    m = pd.read_csv(path, dtype={"id": str})
+    return m.set_index("id")["split"]
+
+
+def split_from_manifest(
+    X: pd.DataFrame,
+    y: pd.Series,
+    meta: pd.DataFrame,
+    seed: int | None = None,
+    unlock_test: bool = False,
+) -> dict[str, tuple]:
+    """**매니페스트 기준** 6:2:2 분할 — 팀원 전원이 동일한 분할을 쓰는 경로.
+
+    `split_6_2_2()`(seed 기반)와 달리 `id`로 매칭하므로 **원본 CSV의 행 순서·pandas·sklearn
+    버전과 무관**하다. 왜 그게 필요한지는 `export_split_manifest.py` docstring 참고 —
+    요약하면 `train_test_split`은 위치를 셔플하므로 행 순서가 다르면 분할이 달라지는데
+    723,563건 검증은 건수만 보므로 **조용히 어긋난다.**
+
+    ⚠️ **Test는 기본적으로 반환하지 않는다.** `unlock_test=True`를 명시해야 나온다.
+    실수로 `parts["test"]`를 집는 일을 막기 위한 것이다 — Test는 모형·threshold가 전부
+    확정된 뒤 **단 1회** 적용한다(`src/analysis/AGENTS.md`).
+
+    ## 반환 행 순서를 `id`로 고정한다 — 분할만 맞춰선 부족하다
+
+    분할 집합이 같아도 **행 순서가 다르면 K-fold 배정이 달라진다.**
+    `StratifiedKFold(shuffle=True, random_state=seed)`도 `train_test_split`처럼 **위치**를
+    셔플하기 때문이다. 그러면 팀원마다 OOF PD가 미세하게 달라지고, 그 PD로 만든 분위 경계·
+    칸별 통계표·`τ*`가 조금씩 어긋난다.
+
+    그래서 각 split을 **`id` 오름차순으로 정렬해** 돌려준다. 이러면 OOF fold까지
+    `(id 집합, seed)`만으로 결정되어 **원본 파일의 행 순서와 완전히 무관**해진다.
+
+    ⚠️ 이 정렬 때문에 `split_6_2_2()`로 낸 기존 수치와 **소수 넷째 자리 수준의 차이**가 생긴다
+    (분할 자체는 동일하고 fold 구성만 바뀐다). 파이프라인을 이 함수로 넘긴 뒤에는 산출물을
+    한 번 다시 만들어야 한다.
+    """
+    manifest = load_split_manifest(seed)
+    ids = meta["id"].astype(str)
+
+    assigned = ids.map(manifest)
+    missing = int(assigned.isna().sum())
+    if missing:
+        raise RuntimeError(
+            f"매니페스트에 없는 id가 {missing:,}건이다 — 표본 필터가 매니페스트 생성 시점과 "
+            "다르다. 필터를 고치기 전에 왜 달라졌는지부터 확인하라(#16)."
+        )
+
+    def take(name: str) -> tuple:
+        idx = ids[assigned == name].sort_values(kind="mergesort").index
+        return X.loc[idx], y.loc[idx], meta.loc[idx]
+
+    parts = {"train": take("train"), "validation": take("validation")}
+    n_test = int((assigned == "test").sum())
+
+    if unlock_test:
+        print(f"⚠️  Test set을 열었다 ({n_test:,}건). 모형·threshold 확정 후 **1회만** 쓴다 — "
+              "여기서 무언가를 고르거나 조정하면 규칙 위반이다.")
+        parts["test"] = take("test")
+    else:
+        print(f"   Test {n_test:,}건은 잠긴 상태다 (unlock_test=True로 열 수 있다).")
+    return parts
+
+
+def resplit_train_validation(
+    X: pd.DataFrame,
+    y: pd.Series,
+    meta: pd.DataFrame,
+    seed: int,
+    manifest_seed: int | None = None,
+) -> dict[str, tuple]:
+    """**Test를 고정한 채** Train+Validation 풀만 재분할한다 (#18의 K=50 반복용).
+
+    `README.md`의 규정 그대로다 — *"Test set은 그대로 고정해두고, 남은 Train+Validation 풀에서
+    매번 다른 방식으로 Train/Validation을 재분할해 모형 학습 → threshold 탐색을 K=50회 반복"*.
+
+    ⚠️ `split_6_2_2(seed=k)`를 반복에 쓰면 **안 된다.** 그건 전체를 다시 80/20으로 갈라
+    **Test 구성까지 매번 바꾼다** — seed마다 다른 대출이 Test에 들어가므로 "Test를 고정해두고"가
+    깨지고, 어떤 seed의 Test 건이 다른 seed의 Train에 들어가 사실상 Test가 오염된다.
+
+    풀 안에서 Validation 비율은 `0.2 / (0.6 + 0.2) = 0.25`다. 부도율이 16.2%로 치우칠 수 있어
+    `stratify`를 건다.
+    """
+    cfg = load_config()
+    parts = split_from_manifest(X, y, meta, seed=manifest_seed)
+
+    # 풀의 **순서를 `id`로 고정한다.** `train_test_split`이 위치를 셔플하므로, 순서가 팀원마다
+    # 다르면 같은 seed로도 다른 Train/Validation이 나온다. 원본 행번호로 정렬하면 원본 파일의
+    # 행 순서에 다시 의존하게 되므로 `id` 기준이어야 한다.
+    pool_ids = pd.concat([parts["train"][2]["id"], parts["validation"][2]["id"]]).astype(str)
+    pool_idx = pool_ids.sort_values(kind="mergesort").index
+
+    val_share_of_pool = cfg.split.validation / (cfg.split.train + cfg.split.validation)
+    keys = pd.Series(pool_idx, index=pool_idx)
+    train_keys, val_keys = train_test_split(
+        keys,
+        test_size=val_share_of_pool,
+        random_state=seed,
+        stratify=y.loc[pool_idx],
+    )
+
+    def take(part: pd.Series) -> tuple:
+        idx = part.index
+        return X.loc[idx], y.loc[idx], meta.loc[idx]
+
+    return {"train": take(train_keys), "validation": take(val_keys)}
+
+
 if __name__ == "__main__":
     X, y, meta = build_feature_table()
     print(f"[피처 테이블] X={X.shape}  y={y.shape}  meta={meta.shape}")

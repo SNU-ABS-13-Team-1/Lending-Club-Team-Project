@@ -108,6 +108,46 @@
 
 > 컬럼명 표준화 규칙, 파생(비율) 변수 목록, 처리 로그 경로는 아직 미확정 — 추후 보충.
 
+## 분할 공유 — **매니페스트를 쓴다. seed만 믿지 않는다**
+
+원본 CSV는 git에 없으므로(1.2GB) 팀원이 각자 받는다. 그런데 **각자 돌린 분할이 같다는 보장이
+없다.** `train_test_split`은 행의 **위치(position)** 를 셔플하므로 원본의 **행 순서가 다르면
+완전히 다른 분할**이 나오고, `filter_analysis_sample()`의 723,563건 검증은 **건수만 보므로
+그대로 통과한다** — 어긋난 것을 아무도 모른다.
+
+행 순서가 달라지는 경로는 실제로 있다: 원본을 엑셀·Numbers로 열었다 저장(그래서 금지한다),
+다른 시점에 받은 파일, 정렬해서 저장한 사본. 그리고 팀원이 각자 다른 seed를 쓰면 **한 사람의
+Test 건이 다른 사람의 Train에 들어가** 개인 기준으로는 규칙을 지켰는데 팀 전체로는 **Test가
+오염된다.**
+
+**해법: `id → split` 매니페스트를 git으로 공유한다.**
+
+| 파일 | 내용 |
+| --- | --- |
+| `data/processed/split_manifest_6_2_2_seed42.csv.gz` | `id`·`split`·`target` (723,563행, **2.35MB gzip** — 커밋 가능) |
+| `data/processed/split_manifest_6_2_2_seed42.source.md` | 출처 카드 (seed·비율·건수·부도율·체크섬) |
+
+- **생성**: `python src/preprocessing/export_split_manifest.py` (1회. 이미 만들어져 있다)
+- **대조**: `python src/preprocessing/export_split_manifest.py --verify`
+  → 자기 원본으로 만든 분할이 매니페스트와 같은지 **SHA-256 체크섬**으로 확인한다.
+  현행 체크섬 `cffd9896…4d5c`. 불일치하면 **매니페스트를 새로 만들지 말고 원인을 먼저 찾는다** —
+  이미 그 분할로 낸 산출물이 전부 무효가 된다.
+- **사용**: `split_6_2_2()`를 직접 쓰지 말고 **`split_from_manifest(X, y, meta)`** 를 쓴다.
+  `id`로 매칭하므로 행 순서·pandas·sklearn 버전과 무관하다.
+- ⚠️ `split_from_manifest()`는 각 split을 **`id` 오름차순으로 정렬해** 돌려준다. 분할 집합이
+  같아도 **행 순서가 다르면 `StratifiedKFold`의 fold 배정이 달라지기** 때문이다(그것도 위치를
+  셔플한다). 정렬하면 OOF fold까지 `(id 집합, seed)`만으로 결정된다.
+
+### ⚠️ Test 격리 — 코드로 잠갔다
+
+- **`split_from_manifest()`는 Test를 기본적으로 반환하지 않는다.** `unlock_test=True`를 명시해야
+  나오고, 그때 경고를 출력한다. 실수로 `parts["test"]`를 집는 일을 막는 장치다.
+- Test는 모형·threshold가 **전부 확정된 뒤 단 1회** 적용한다(`src/analysis/AGENTS.md`).
+  랭킹 기준 3종 비교처럼 **여러 안 중 하나를 고르는 작업에 Test를 쓰면 규칙 위반**이다.
+- **K=50 반복(#18)에는 `resplit_train_validation()`을 쓴다.** `split_6_2_2(seed=k)`를 반복에
+  쓰면 **Test 구성까지 매번 바뀌어** "Test set은 그대로 고정해두고"(`README.md`)가 깨진다.
+  이 함수는 매니페스트의 Train+Validation 풀만 75/25로 다시 가른다.
+
 ## 구현 — 어느 함수를 부르는가 (2026-07-30, 커밋 `7e1cb9d`)
 
 위 규칙은 이미 코드로 구현돼 있다. **다시 짜지 말고 아래를 호출한다.**
@@ -115,7 +155,11 @@
 | 모듈 | 담당 | 주요 함수 |
 | --- | --- | --- |
 | `loader.py` | 원본 로딩 · 표본 필터 · 피처 컬럼 선택 | `load_raw_loans()`, `filter_analysis_sample()`(**723,563건 검증 내장**), `normalize_loan_status()`, `parse_term_months()`, `make_target()`, `pre_approval_columns()`, `select_feature_columns()`, `validate_schema()` |
-| `preprocessor.py` | dtype 정리 · 피처 테이블 · 분할 | `coerce_dtypes()`, `build_feature_table()`, `split_6_2_2()` |
+| `preprocessor.py` | dtype 정리 · 피처 테이블 · 분할 | `coerce_dtypes()`, `build_feature_table()`, **`split_from_manifest()`**(권장), `resplit_train_validation()`(K=50 반복용), `load_split_manifest()`, `split_6_2_2()`(매니페스트 **생성 전용**) |
+| `export_split_manifest.py` | 분할 매니페스트 생성·체크섬 대조 | `build_manifest()`, `split_checksum()`, `main()` (`--verify`) |
+
+> ⚠️ **`split_6_2_2()`를 분석 코드에서 직접 부르지 않는다.** 이 함수는 매니페스트를 **만들 때만**
+> 쓴다. 분석은 `split_from_manifest()`를 경유해야 팀원 간 분할이 일치하고 Test가 잠긴다.
 
 - `filter_analysis_sample(df, verify=True)`는 결과가 **723,563건이 아니면 예외로 중단**한다(#16).
   건수가 바뀌었다면 필터를 고치기 전에 **왜 바뀌었는지부터** 확인한다.
