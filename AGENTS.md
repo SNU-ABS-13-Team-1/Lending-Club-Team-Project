@@ -171,6 +171,7 @@
 | ⏳ **초과수익 선별 개정안** (#23 제안 — 금액가중 목적함수 `S_XS`·조건부 모멘트) | `excess_return_sharpe_selection_methodology.md` |
 | **#23 개정안 교차검토** (일치 6·채택권고 3·**팀결정 3**·회의 안건 A~D) | `methodology_23_review_kgj.md` |
 | 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
+| **최종 보고서 장별 논리 흐름 초안** (decision_log를 보고서 목차 순서로 재배열, 장별 상태·주의사항) | `final_report_outline_ayh.md` |
 
 > ⏳ 표시된 #23 문서 2건은 **작성자 제출 개정안이며 팀 확정이 아니다.** 원안의
 > `status: finalized`를 `proposed`로 조정했다(본문 무수정). **이 문서들을 근거로 구현을
