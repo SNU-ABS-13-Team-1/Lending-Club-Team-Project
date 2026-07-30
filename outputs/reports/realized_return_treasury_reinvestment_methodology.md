@@ -4,19 +4,18 @@ tags:
   - lending-club
   - realized-return
   - treasury-reinvestment
-status: proposed
-updated: 2026-07-30
+status: partially-adopted (2026-07-31 회의, decision_log #22 ③·#23)
+updated: 2026-07-31
 ---
 
-# Lending Club 실현수익률 계산 명세 (제안, #23)
+# Lending Club 실현수익률 계산 명세 (이슈 #23 — 부분 채택)
 
-> ⏳ **팀 확정 전이다.** 작성자(유명곤)가 제출한 개정안이며 `decision_log.md`에 아직 반영되지
-> 않았다. 문서 권위 순서상 확정 사항의 단일 원본은 `decision_log.md`이므로(`AGENTS.md`),
-> **이 문서를 근거로 구현을 바꾸지 않는다.** 원안의 `status: finalized`는 팀 승인 전이라
-> `proposed`로 조정했다 — **본문 수식·수치·논지는 수정하지 않았다**(강권재, 2026-07-30).
->
-> 기존 확정 사항과 충돌하는 항목 및 교차검토 결과는
-> `outputs/reports/methodology_23_review_kgj.md`에 있다. 함께 읽는다.
+> ✅ **2026-07-31 회의에서 부분 채택됐다** (`decision_log.md` #22 ③·#23 안건 A).
+> **채택**: 월별 현금흐름 재구성 · GS1M 실제경로 재투자 · 만기 후 역할인 · `var_정상` 칸별 추정 —
+> 구현은 `src/analysis/realized_return_cashflow.py`(B팀 CSV와 일치 검증 완료).
+> **유지(#20)**: 정상상환 **건별** 계약 계산(구조 A′) · 부도분 칸 평균.
+> 본문 수식·수치·논지는 제출 원안 그대로다 — **채택된 항목만 구현 근거로 쓴다.**
+> 채택/유지 대조표는 `outputs/reports/methodology_23_review_kgj.md`에 있다.
 
 > 대출 한 건 전체를 하나의 상품으로 보고, 계약만기 전 현금흐름은 만기까지 재투자하고 계약만기 후 현금흐름은 만기 시점으로 할인한 뒤 계약기간 기준으로 연율화한다.
 

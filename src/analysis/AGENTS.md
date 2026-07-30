@@ -48,16 +48,17 @@
     - `var_부도`는 표본이 작은 칸에서 불안정하다(상대오차 ≈ `√(2/(n−1))` — n=300에서 8.2%,
       n=50에서 20.2%). **분산에는 평균보다 엄한 최소 표본수를 요구하고 pooled 분산으로 축소추정한다.**
       분산이 과소추정된 칸이 체계적으로 승인되는 선택편향을 막기 위한 것이다.
-  - ⚠️ **계산 세부 3건은 아직 미확정** (B팀, #20): **조기상환 보정 방식**(1순위 — 계약 현금흐름만 쓰면
-    `R` 과대추정), 국채 금리 기준(ⓒ발행시점 고정 권고), 서비스수수료(~1%).
-    - 따라서 **부도 손실값·금리 관례를 코드에 상수로 박지 않는다.** 실현수익률 계산은 정의를
-      **주입받는 형태**(파라미터/전략 함수)로 짜서, 안을 갈아 끼우며 Sharpe를 비교할 수 있게 한다.
-    - **잠정값(ⓒ·수수료 0%)으로 진행하고 산출물에 `잠정(provisional)` 표기를 남긴다.** 확정 시
-      **칸별 통계표와 threshold만 재계산**하면 되고 모형 재학습은 불필요하다(#19·#20).
+  - ✅ **계산 세부 3건은 2026-07-31 회의로 전부 확정됐다** (`decision_log.md` #22):
+    ① **조기상환 = 건별 실현 현금흐름 반영**(B팀 명세 재현 — 월별 재구성·GS1M 실제경로 재투자·
+    만기 후 역할인, `Δ̄_조기상환,d`·`var_정상,d` 칸별 추정. 보정폭 36m +1.06%p / 60m +2.24%p)
+    ② **국채 금리 = ⓒ발행시점 고정 + 역할 3분리**(`rf`=GS3/GS5 · 계약분 재투자=ⓒ ·
+    실현분 재투자·역할인=GS1M 실제경로 — #22의 표를 본다)
+    ③ **서비스수수료 = 0% 미반영**(보고서 한계에 명시).
+    - **부도 손실값·금리 관례를 코드에 상수로 박지 않는다**는 지침은 유지한다 — 가정은
+      `ReturnAssumptions`로 주입받고, 바꾸면 **칸별 통계표와 threshold만 재계산**한다(#19·#20).
     - ⚠️ **재투자 가정 스위치(국채 / 0%)는 칸별 통계표까지 다시 만든다** — `mu`·`var`가 `XR`에서
       산출되므로 #18이 말한 "계산 스위치 하나"로 끝나지 않는다. 파일명·컬럼에 가정을 남긴다.
-    - **분류 모델은 이 세부를 기다리지 않고 만들 수 있다** — 타깃이 이진 `loan_status`라 손실 정의가
-      학습에 개입하지 않는다.
+      산출물 파일명의 `provisional` 라벨은 기존 산출물과의 연속성을 위해 유지한다(#22 파급).
   - ✅ **칸별 통계표 설계는 실측으로 검증됐다** (`oof_diagnostics_kgj.md`, 2026-07-30).
     - `ρ(pd_oof, q_score) = −0.754` · `ρ(pd_oof, E[XR]) = −0.411` → **PD 랭킹과 실질적으로 다르다.**
       `|ρ|`≈0.99였다면 칸별 통계표를 버리고 단순 PD threshold로 돌아가야 했으나 그 경우가 아니다.
@@ -66,7 +67,7 @@
     - 칸별 `int_rate` sd 중앙값 **2.85%p**(범위 최대 25%p) → **A′의 건별 계산이 실효 있다.**
       순수 A였다면 이 산포가 전부 뭉개졌다.
     - Validation 분위 인원 이탈 **최대 0.60%p**(±2%p 이내) → **Train 경계를 그대로 이전할 수 있다.**
-      - ⏳ **fold 수는 5 → 3으로 내렸다** (`model.DEFAULT_N_FOLDS`, 이슈 #32 — **팀 확정 대기**).
+      - ✅ **fold 수는 5 → 3으로 내렸다** (`model.DEFAULT_N_FOLDS`, 이슈 #32 — #21 ⑥ 확정).
         8:2·seed 0 실측에서 이탈이 k=3 **0.479%p** / k=5 0.361%p로 **둘 다 0.60%p 기준을 통과**하고,
         k=2는 **0.904%p로 위반**한다. 3-fold는 학습을 33% 줄인다(K=50 82분 → 49분).
         ECE도 같은 방향이다(k=2 0.535 / k=3 0.356 / k=5 0.330%p, 잡음 바닥 0.236%p).
@@ -85,14 +86,14 @@
     AUC는 −0.00002만 움직인다. Train OOF PD가 곧 학습 데이터라 **추가 학습 0회**다.
     - ⚠️ **"isotonic은 단조변환이라 분위 경계가 바뀌지 않는다"는 틀렸다.** 계단함수라 고유값이
       42.9만 → 127개로 뭉치고, 보정된 PD로 자르면 **칸 인원이 최대 2.10%p 기운다**(보정 전은
-      0.001%p, 옛 seed 42 분할에서는 3.13%p — 기울기 크기는 분할에 따라 다르다). 그래서 위 역할 분리가 필요하다. `decision_log.md` 「부수 결정」 정정 대상.
+      0.001%p, 옛 seed 42 분할에서는 3.13%p — 기울기 크기는 분할에 따라 다르다). 그래서 위 역할 분리가 필요하다. `decision_log.md` 「부수 결정」의 옛 문구는 **#24 ⑥에서 정정됐다.**
     - 구현: `model.py`의 `fit_calibrator()`·`apply_calibrator()`·`calibration_metrics()`·
       `calibration_noise_floor()`. ECE 판정은 **바닥값**(완벽 보정 시 나오는 ECE, 여기서는
       0.118%p)과 대조해서 한다 — 절대 기준 0.5%p는 표본이 작으면 바닥값과 구분되지 않는다.
-  - ⏳ **승인선 랭킹 기준 — 근거 확보, 팀 확정 대기** (`pd` 단독 / `E[XR]` / `q_score`).
-    세 기준은 **같은 중간 테이블에서 정렬만 바꾸면 나오므로 추가 학습 없이 비교**할 수 있다.
-    **Validation에서만 비교해 승자를 사전 확정한 뒤 Test 1회** — 세 기준을 Test에서 비교하면
-    아래 "Test set으로 모형을 재조정하지 않는다" 규칙 위반이다.
+  - ✅ **승인선 랭킹 기준 — `q_score` 확정** (`decision_log.md` #21 ①, 2026-07-31 회의).
+    세 기준은 **같은 중간 테이블에서 정렬만 바꾸면 나오므로 추가 학습 없이 비교**할 수 있었고,
+    **Validation에서만 비교해 승자를 사전 확정한 뒤 Test 1회**의 절차를 지켰다 — 세 기준을
+    Test에서 비교하면 아래 "Test set으로 모형을 재조정하지 않는다" 규칙 위반이다.
     - 실측(`sharpe_threshold_kgj.md`, seed 20260730): **`q_score` 0.28893 > `E[XR]` 0.28049 >
       `pd` 0.27579** (Δ +0.0643 / +0.0559 / +0.0512, 승인율 63.0% / 73.0% / 52.9%).
       **재투자 가정 2종에서 순위가 동일**하다. ⚠️ 단 **2·3위는 분할에 민감하다** — 옛 분할
@@ -100,8 +101,8 @@
       K=50 반복(#18)이 이 다툼을 판별한다. `q_score`가 이기는 이유: `E[XR]`은 분산을 안 봐서
       sd가 7.58%까지 오르고, `pd`는 수익성 좋은 중위험 대출까지 거절해 평균이 낮다 —
       둘의 약점을 모두 피한다.
-    - ⚠️ `var_정상 = 0`인 잠정 구현 기준이다. 조기상환 보정이 들어가면 `q_score` 분모가 커지므로
-      **이 우열은 다시 확인해야 한다**(#20 B팀 1순위).
+    - ⚠️ 위 실측 수치는 `var_정상 = 0`이던 보정 전 구현 기준이다. 조기상환 보정(#22 ③) 반영 후의
+      수치는 8:2 K=50 본실행 산출물로 갱신한다 — 기준 자체는 #21 ①로 확정이라 재표결 대상이 아니다.
     - 어느 기준이든 threshold는 **점수의 이론값이 아니라 Validation 실현 XR로 계산한 실제 Sharpe**
       그리드서치로 정한다. 개별 대출 `q_score` 최대화는 포트폴리오 Sharpe 최대화와 같은 문제가 아니다.
     - threshold 곡선에는 **Sharpe·Δ Sharpe와 함께 승인율을 반드시 병기**한다. 위 Sharpe 정의는
@@ -119,7 +120,7 @@
     `(seed, train 분할, 모형, 보정기, 분위경계, 칸별 통계표, τ*)` 한 묶음이다. 그 seed를
     `resplit_train_validation(seed)`로 **똑같이 재현**해 Test에 적용한다 — 학습 풀은 그 seed의
     Train 60%이며, 80%로 다시 학습하면 τ*를 만든 모형과 다른 모형이 Test에 간다.
-    구현은 `final_evaluation.py`. ⚠️ `decision_log.md` 등재는 팀 확인 후.
+    구현은 `final_evaluation.py`. ✅ `decision_log.md` #21 ④로 등재 완료(2026-07-31 회의).
   - 최고값 선택은 분할 운을 성과에 포함한다. 그래서 산출 CSV에 **K=50 τ* 중앙값을 적용한
     `median_tau` 행을 함께** 남긴다(추가 학습 없음) — 두 값의 차이가 선택 규칙이 만든 낙관분이다.
     **Validation 최고값을 Test 성과로 인용하지 않는다** — Test 값이 최종 성과다.
@@ -137,10 +138,10 @@
   - 고정 상수가 아니므로 `config/config.yaml`의 `risk_free_rate.value`는 **`null`을 유지**하고,
     `issue_d` × `term` 매칭 로직으로 처리한다. `value`를 읽어 쓰는 코드를 작성하지 않는다.
 - **Threshold 확정 절차**: 랜덤 6:2:2 분할을 **K=50회 반복**하고 `τ*`의 분포(평균·표준편차)를 본다 (#18).
-  - ⏳ **분할 체계가 셋이다** — `6_2_2`(#18 확정) · `7_3`(#30 확정) · `8_2`(이슈 #32, **팀 확정 대기**).
-    `7_3`·`8_2`는 Test를 1차 표본 안에서 떼지 않고 **별도 파일**(2nd Test)로 둔다. K=50은 셋 다
-    동일하며 재분할 대상만 다르다. 산출물은 **체계·fold별로 파일이 갈린다**
-    (`repeat_output_path()` → `sharpe_repeat_k50_8_2_3fold.csv`) — 섞어 인용하지 않는다.
+  - ✅ **분할 체계가 셋이다** — `6_2_2`(#18) · `7_3`(#30) · **`8_2`(현행, #21 ⑥·#23 확정)**.
+    `7_3`·`8_2`는 Test를 1차 표본 안에서 떼지 않고 **별도 파일**(2nd Test — `decision_log.md` #23
+    정식 확정)로 둔다. K=50은 셋 다 동일하며 재분할 대상만 다르다. 산출물은 **체계·fold별로 파일이
+    갈린다** (`repeat_output_path()` → `sharpe_repeat_k50_8_2_3fold.csv`) — 섞어 인용하지 않는다.
 - 안정성 검증 시 `random_state` 0~29로 30회 반복해 모형 Sharpe가 "전부 승인" 베이스라인을 이기는 비율을 확인한다.
 - 모형 구성은 **통합 모형 + `term` 피처 투입**이다 — 36m/60m 분리 모형은 `decision_log.md` #13 ②에서 실측 기각(60m에서 AUC −0.00564, 5/5 seed). 단 성능표는 term별로 나눠 보고한다.
   - ⚠️ 이는 **PD 모형**을 나누지 않는다는 뜻이며, IRR·Sharpe 계산식에는 term별 현금흐름 기간이 반드시 들어간다(#4).
@@ -155,7 +156,7 @@
 | --- | --- | --- |
 | **탐색·검증** | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py`, `auc_sample_filter_comparison.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
 | **실현수익률 검증** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
-| **본 파이프라인** | `model.py` (동작) · `realized_return.py` (동작, **잠정 가정**) · `oof_diagnostics.py` (동작) · `sharpe_optimizer.py` (동작, **잠정 가정**) | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
+| **본 파이프라인** | `model.py` · `realized_return.py` · `realized_return_cashflow.py` · `oof_diagnostics.py` · `sharpe_optimizer.py` · `final_evaluation.py` · `second_test_evaluation.py` (전부 동작, #22 확정 가정) | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
 
 **본 파이프라인 모듈이 무엇을 담당하는가** (2026-07-30 구현, 커밋 `c18a40b`)
 
@@ -184,7 +185,8 @@
 > - 칸별 통계표·분위 경계는 **Train에서만** 만들어 Validation에 적용한다(재분위 금지).
 
 > `realized_return.py`의 가정은 전부 `ReturnAssumptions`(frozen dataclass)로 **주입받는다** —
-> `reinvest`("treasury"/"cash") · `treasury_basis` · `servicing_fee_annual` · `prepayment_adjustment`.
+> `reinvest`("treasury"/"cash") · `treasury_basis` · `servicing_fee_annual` · `prepayment_adjustment`
+> (민감도용 수동 오버라이드) · **`realized_basis`("cashflow" 기본, #22 ③)**.
 > 손실값을 상수로 박지 않는다는 위 규칙의 구현이며, 산출물 파일명에 `label()`이 붙는다.
 
 > 인용 주의: 비교 스크립트가 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값이다.
@@ -197,10 +199,10 @@
 >
 > `realized_return_sensitivity.py`의 `realized_return()`은 **실측 현금흐름 기준으로 #18 재투자 가정을
 > 검증한** 구현이다(`allocation` × `use_rates` 스위치, 민감도 표 재현 전용).
-> 구조 A′의 **계약 `R`은 `realized_return.py`의 `contract_return()`에 구현돼 있다**(연금 종가 공식).
-> 남은 미결은 그 계약 `R`과 **실현 `R`의 차이인 조기상환 보정항**이며, 현재 `prepayment_adjustment = 0`
-> 으로 고정돼 있어 정상상환분 `R`이 과대추정되고 `var_정상 = 0`이 된다 — B팀 1순위(#20).
-> 인계 내용은 `outputs/reports/handoff_teamb_realized_return.md`.
+> 구조 A′의 **계약 `R`은 `realized_return.py`의 `contract_return()`에 구현돼 있고**(연금 종가 공식),
+> 계약 `R`과 실현 `R`의 차이인 **조기상환 보정은 #22 ③으로 확정·구현됐다** —
+> `realized_return_cashflow.py`(건별 실현 현금흐름) + `normal_cell_stats()`(칸별 `Δ̄`·`var_정상`).
+> 인계 경위는 `outputs/reports/handoff_teamb_realized_return.md`(2026-07-31 추기 참고).
 
 ## 참고
 - **확정 사항의 원본은 `outputs/reports/decision_log.md`다.** 이 문서와 어긋나면 decision_log가 우선이고, 이 문서를 고친다.

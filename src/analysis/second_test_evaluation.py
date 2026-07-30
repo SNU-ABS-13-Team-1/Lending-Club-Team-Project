@@ -272,7 +272,7 @@ def main() -> None:
     print("=" * 78)
     print(f"랭킹 기준 : {args.criterion}   선택 기준 가정 : {args.reinvest}")
     print("모델·τ*는 final_evaluation.py와 **동일**하다 — 적용 대상만 바꾼다.")
-    print("⚠️ XR은 **잠정 가정**이다 — 국채 ⓒ발행시점 고정 · 수수료 0% · 조기상환 보정 0(#20).")
+    print("XR 가정(#22 확정): 국채 ⓒ발행시점 고정 · 수수료 0% · 조기상환 건별 현금흐름 반영.")
 
     best = select_best_model(args.criterion, args.reinvest, min_k=args.min_k,
                              scheme=args.scheme)
