@@ -191,6 +191,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 거시지표 개별 수집 기록 | `macro_{지표}.md` — 출처·검증·발표시차·개정 이슈 |
 | 변수 전처리 방식 검증 (결측 티어 T0~T3, seasoning 편향) | `preprocessing_validation_kgj.md` |
 | 팀원 4인 검증문서 교차검증 (모형 구성·결측 처리 결론) | `preprocessing_crosscheck_kgj.md` |
+| **B팀 핸드오프 — 실현수익률 계산** (산출물 3종·1순위 조기상환 보정·작업 0/7~10) | `handoff_teamb_realized_return.md` |
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -232,11 +233,17 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/analysis/t2_contribution_reassessment.py` | `preprocessing_validation_kgj.md` 7절 (#12) | `outputs/t2_contribution_by_sample.csv` |
 | `src/analysis/term_split_comparison.py` | `preprocessing_crosscheck_kgj.md` (#13 ②) | `outputs/term_split_comparison.csv` |
 | `src/analysis/missing_scheme_comparison.py` | `preprocessing_crosscheck_kgj.md` (#13 ③) | `outputs/missing_scheme_comparison.csv` |
+| `src/analysis/realized_return_spec_check.py` | `decision_log.md` #20 · 이슈 #15 (탈락 캐스케이드·계산 가능 건수) | `outputs/realized_return_spec_check_cascade.csv`, `outputs/realized_return_spec_check_R_by_status_term.csv` |
+| `src/analysis/realized_return_sensitivity.py` | `decision_log.md` #18 (**재투자 가정 +107.5bp**) | `outputs/realized_return_sensitivity.csv` |
 
 > 이들은 **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않고 자체 2분할·자체 seed 루프를 쓴다(의도된 차이).
 > AUC를 쓰지만 **승인/거절 기준을 정하는 데 쓰지 않으므로** Sharpe 규칙과 충돌하지 않는다.
 > ⚠️ 이 스크립트들이 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값 — **최종 모형 성능으로 인용 금지**(#13 ⑤).
 > 대부분 `data/raw/lending_club_2020_train.csv`(1.2GB, git 미추적)를 입력으로 받으며 실행에 수 분~수십 분 걸린다.
+>
+> ⚠️ 실현수익률 2종은 AUC를 쓰지 않는다(모형 학습 없음, pandas/numpy만). `realized_return_sensitivity.py`의
+> `realized_return()`은 **#18 재투자 가정의 저장소 내 유일한 구현**이다 — B팀 작업의 출발점
+> (`outputs/reports/handoff_teamb_realized_return.md`).
 
 **③ 본 파이프라인** — 아직 뼈대. 여기에 "규칙"이 그대로 적용된다
 

@@ -87,6 +87,7 @@
 | 종류 | 파일 | 성격 |
 | --- | --- | --- |
 | **탐색·검증** (현재 전부 이쪽) | `preprocessing_validation.py`, `missing_scheme_comparison.py`, `term_split_comparison.py`, `t2_contribution_reassessment.py`, `macro_indicator_screening.py` | 문서의 표를 재생성하는 재현 스크립트. 자체 2분할·자체 seed 루프를 쓰며 `config.yaml`을 따르지 않는다(의도된 차이). AUC는 상대 비교용. |
+| **실현수익률 계산** | `realized_return_spec_check.py`, `realized_return_sensitivity.py` | 모형 학습이 없다(pandas/numpy만). `config.yaml`을 따르지 않으며 AUC도 쓰지 않는다. 위 "규칙" 절의 **재투자 가정·연율화 식**이 적용되는 대상. |
 | **본 파이프라인** (아직 뼈대) | `model.py`, `sharpe_optimizer.py` | 위 "규칙" 절이 그대로 적용되는 대상. `config.yaml`을 반드시 경유한다. |
 
 > 인용 주의: 비교 스크립트가 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값이다.
@@ -94,6 +95,11 @@
 > 회의에서 조건변수 투입이 확정됐으므로(#17 ③) **최종 모형 기준은 0.71대**다.
 >
 > `macro_indicator_screening.py`는 거시지표 미사용 확정(#15)으로 **과거 산출물 재현 전용**이 됐다.
+>
+> `realized_return_sensitivity.py`의 `realized_return()`은 **#18 재투자 가정의 저장소 내 유일한 구현**이다
+> (`allocation` × `use_rates` 스위치). 구조 A′의 정상상환분에 필요한 **계약 `R`은 아직 구현돼 있지 않다** —
+> 실현 `R`과의 차이가 B팀 1순위 미결인 조기상환 보정항이다.
+> 인계 내용은 `outputs/reports/handoff_teamb_realized_return.md`.
 
 ## 참고
 - **확정 사항의 원본은 `outputs/reports/decision_log.md`다.** 이 문서와 어긋나면 decision_log가 우선이고, 이 문서를 고친다.
