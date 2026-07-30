@@ -17,7 +17,7 @@ graph LR
         P1["행 필터링 + 만기 표본 필터<br/>loader.py → 723,563건<br/>(Current/Late 제외, 정책미달 재분류,<br/>issue_d + term ≤ 2020-04)"]
         P2["피처 컬럼 선택 + 타겟 라벨링<br/>loader.py<br/>(사전 변수 + PRE_APPROVAL_OVERRIDES)"]
         P3["dtype 정리<br/>preprocessor.py<br/>(결측 NaN 유지 · 범주형 category)"]
-        P4["랜덤 6:2:2 층화분할<br/>preprocessor.py"]
+        P4["랜덤 층화분할 — 현행 8:2<br/>preprocessor.py + 분할 매니페스트<br/>(#21 ⑥, 6:2:2→8:2 개정)"]
         P5["비율 파생변수 · 컬럼명 표준화<br/>(미확정 — 보류)"]
         B1["변수 사전 검증 스크립트<br/>label_pre_post_by_rule.py"]
         B3["거시지표 수집<br/>fetch_macro_*.py<br/>(다운로드+검증+저장)"]
@@ -29,17 +29,17 @@ graph LR
 
     subgraph PROC["data/processed"]
         C1["변수 사전/라벨 산출물<br/>variable_dictionary_byGJ.xlsx"]
-        C2["모델링용 처리 데이터<br/>(파일 저장 미구현 — 현재 in-memory)"]
+        C2["팀 공유 전처리 parquet<br/>shared/ (git 미추적)<br/>export_shared_dataset.py → load_shared()"]
         C3["거시경제지표 시계열<br/>macro_*.csv + .source.md<br/>#15 최종 미사용"]
-        C4["무위험수익률<br/>us_treasury_GS3_GS5_*.csv"]
+        C4["국채수익률 (#22 ① 역할 3분리)<br/>GS3/GS5 — rf·계약분 재투자<br/>GS1M — 실현분 재투자·역할인"]
     end
 
     subgraph AN["src/analysis"]
-        D1["Train 60%<br/>XGBoost PD 모형 · K-fold OOF<br/>model.py"]
-        D2["실현수익률 · 칸별 통계표<br/>realized_return.py<br/>(구조 A′, 잠정 가정)"]
+        D1["Train 80%<br/>XGBoost PD 모형 · OOF 3-fold<br/>model.py"]
+        D2["실현수익률 · 칸별 통계표<br/>realized_return.py · realized_return_cashflow.py<br/>(구조 A′ · 세부 가정 #22 확정)"]
         D3["Validation 20%<br/>Sharpe 최대화 threshold 확정<br/>sharpe_optimizer.py"]
-        D4["Test 20%<br/>확정 모형·threshold 그대로 검증"]
-        D5["설계 진단 C-1/C-2/C-3<br/>oof_diagnostics.py"]
+        D4["2nd Test — 외부 파일 1회 평가<br/>확정 모형·τ* 그대로 검증<br/>second_test_evaluation.py"]
+        D5["설계 진단 C-1~C-4<br/>oof_diagnostics.py"]
     end
 
     subgraph VIZ["src/viz"]
@@ -52,7 +52,7 @@ graph LR
     end
 
     A1 --> P1 --> P2 --> P3 --> P4 --> D1
-    P4 -.저장 미구현.-> C2
+    P4 --> C2
     P4 -.보류.-> P5
     A2 --> B1 --> C1
     X1 --> B3
@@ -72,16 +72,21 @@ graph LR
     V1 -.검증 결과.-> F1
 
     classDef planned stroke-dasharray: 4 3;
-    class P5,C2,C3,D3,D4,E1 planned;
+    class P5,C3,E1 planned;
 ```
 
 > `VAL` 그룹은 **본 파이프라인이 아니다** — 문서에 실린 표를 다시 만드는 재현·검증 스크립트이며,
-> 원본/산출물을 읽어 `outputs/`에 근거를 남기는 곁가지다. `config.yaml`의 6:2:2를 따르지 않고
+> 원본/산출물을 읽어 `outputs/`에 근거를 남기는 곁가지다. 팀 표준 분할(매니페스트)을 따르지 않고
 > 자체 분할을 쓴다 (`AGENTS.md`의 코드 색인 ② 참고).
 >
 > 실선 노드 = 이미 구현/확정된 단계, 점선 노드 = 아직 구현되지 않았거나 팀 미확정인 단계.
 > `P1`~`P4`는 **구현 완료**다(커밋 `7e1cb9d`) — 함수 목록은 `src/preprocessing/AGENTS.md`의
 > 「구현 — 어느 함수를 부르는가」. `P5`(파생변수·컬럼명)는 미확정이라 보류 상태다.
+>
+> **분할 체계는 6:2:2(#13 ④·#18) → 7:3(#30) → 8:2 + 2nd Test·OOF 3-fold(현행)로 개정됐다**
+> (#21 ⑥·#23). 1차 표본은 전량 Train/Validation에 쓰고, Test 칸을 따로 떼지 않는다 —
+> 최종 평가는 외부 파일 `lending_club_2020_test_2nd.csv`(필터 통과 481,833건)로 1회 한다(`D4`).
+> 분할 정의는 `data/processed/split_manifest_8_2_seed20260730.csv.gz`가 단일 원본이다.
 >
 > ⚠️ **거시지표는 본 파이프라인에 결합하지 않는다** — #15에서 **최종 미사용으로 확정**됐다.
 > **수집**(`B3`)은 완료돼 `C3`에 남아 있으나, 이제 재현·검증(`V1`)과 과거 기록 용도뿐이다.
@@ -99,13 +104,14 @@ graph LR
 
 ```mermaid
 graph TD
-    L["대출 신청 1건"] --> M{"신용평가모형<br/>부도확률 p 예측"}
-    M -->|"p < threshold"| APP["승인"]
-    M -->|"p ≥ threshold"| REJ["거절"]
+    L["대출 신청 1건"] --> M{"신용평가모형<br/>부도확률 p̂ 예측"}
+    M --> Q["승인선 점수 q_score<br/>= E[XR] / √Var[XR] (#21 ①)"]
+    Q -->|"q_score ≥ τ"| APP["승인"]
+    Q -->|"q_score < τ"| REJ["거절"]
 
     APP --> R1{"실제 상환 결과"}
     R1 -->|"정상상환"| RET1["R_계약 (건별)<br/>= (W/P)^(12/T) − 1<br/>W = Σ CFm·F(m,T)"]
-    R1 -->|"부도"| RET2["r̄_부도 (PD분위 × term 그룹평균)<br/>같은 공식, 회수 현금흐름<br/>구조는 A′로 확정 · 세부 3건 미확정"]
+    R1 -->|"부도"| RET2["r̄_부도 (PD분위 × term 그룹평균)<br/>같은 공식, 회수 현금흐름<br/>구조 A′ · 세부 3건 확정(#22)"]
 
     REJ --> RET3["실현수익률 = 무위험수익률 Rf<br/>(국채 투자 가정)"]
 
@@ -114,11 +120,11 @@ graph TD
     RET3 --> PORT
 
     PORT --> SR["Sharpe Ratio<br/>= (평균 − Rf) / 표준편차(ddof=1)"]
-    SR --> TH["Validation에서<br/>Sharpe Ratio 최대화하는<br/>threshold 탐색"]
-    TH -.피드백.-> M
+    SR --> TH["Validation에서<br/>Sharpe Ratio 최대화하는<br/>threshold τ 탐색"]
+    TH -.피드백.-> Q
 ```
 
-> Test set은 위 피드백 루프(threshold 재탐색)에 참여하지 않는다 — 확정된 모형·threshold를 그대로 적용해 검증만 한다.
+> 2nd Test(외부 파일)는 위 피드백 루프(threshold 재탐색)에 참여하지 않는다 — 확정된 모형·τ*를 그대로 적용해 검증만 한다(#23).
 >
 > **재투자 가정(확정, `decision_log.md` #18)**: `RET1`·`RET2` 모두 **매달 받는 상환액을 잔존기간에
 > 맞춘 국채에 재투자**한다고 보고 만기 `T` 시점 종가로 평가한다. `F(m,T)`는 `m`월 수령액을 `T`까지
@@ -132,12 +138,15 @@ graph TD
 > **구조 B(2단계 hurdle 건별 회귀)는 기각됐다 — 위 그림에 부도 서브셋 회귀 모델은 없다.** 모형은
 > `M`(PD 분류기) 하나뿐이다.
 >
-> ⚠️ **계산 세부 3건은 미확정**이며 B팀 담당이다(#20) — **조기상환 보정 방식**(1순위: 계약 현금흐름만
-> 쓰면 `RET1`이 과대추정된다), 국채 금리 기준(ⓒ발행시점 고정 권고), 서비스수수료. 잠정값으로 진행
-> 가능하나, 확정 시 `SR`과 `TH`의 값이 함께 달라진다.
+> **계산 세부 3건은 전부 확정됐다** (#22, 2026-07-31 — 미확정 소멸): ① **조기상환 = 건별 실현
+> 현금흐름 반영**(`realized_return_cashflow.py`, 보정폭 36개월 +1.06%p / 60개월 +2.24%p)
+> ② **국채 금리 = ⓒ발행시점 고정 + 역할 3분리**(`rf`=GS3/GS5 · 계약분 재투자=ⓒ · 실현분
+> 재투자·역할인=GS1M 실제경로) ③ **서비스수수료 = 0% 미반영**(최종 보고서 한계에 명시).
 >
-> ⚠️ `TH`의 **랭킹 기준은 미확정**이다 — `p̂` 단독 / `E[XR]` / `q_score`(= `E[XR]/√Var[XR]`).
-> Validation에서만 비교해 사전 확정한 뒤 Test 1회(#5·#20).
+> `Q`의 **랭킹 기준은 `q_score`로 확정**됐다(#21 ①, 3종 비교 우세 — `sharpe_threshold_kgj.md`).
+> PD는 역할이 둘이다(#21 ②·진단 C-4): `E[XR]`·`Var[XR]`의 `p̂`만 isotonic **보정 후** PD,
+> 분위 경계·배정은 **보정 전** PD. 최종 모형은 K=50 반복 중 Validation Sharpe 최고 모델을
+> 재현하고 `median_tau`를 병기한다(#21 ④).
 >
 > ⚠️ `SR`은 **절대값을 성과로 보고하지 않는다.** 재투자 가정이 모형 전략과 approve-all 대조군(#17 ②)을
 > 똑같이 밀어올리므로, 헤드라인 지표는 **Δ Sharpe = (모형 − approve-all)** 이다.
