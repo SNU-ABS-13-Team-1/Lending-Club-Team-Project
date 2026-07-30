@@ -56,6 +56,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -321,6 +322,102 @@ def repeat_threshold_search(
     return pd.DataFrame(rows)
 
 
+def repeat_full_search(
+    seeds: Iterable[int],
+    out_path: Path,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """**본 실행** — 재분할 K회 × 랭킹기준 3종 × 재투자가정 2종의 `τ*`를 한 번에 낸다 (#18).
+
+    `repeat_threshold_search()`와 무엇이 다른가: 저쪽은 `score_fn(seed)` 하나를 반복하므로
+    **기준마다 모형을 다시 학습**한다(3 × 2 × 50 = 300 → 실제로는 1800회 학습). 여기서는
+    seed당 **6회 학습(5-fold OOF + 최종 1)** 만 하고, 그 위에서 정렬만 바꿔 6조합을 만든다 —
+    기준·가정은 학습에 개입하지 않기 때문이다(#19). K=50이면 총 300회 학습이다.
+
+    Test는 열지 않는다. `resplit_train_validation()`이 매니페스트의 Train+Validation 풀만
+    다시 가르므로 Test 20%는 seed와 무관하게 고정된다.
+
+    seed마다 6행을 CSV에 덧붙이고, **이미 있는 `(seed, reinvest, criterion)`은 건너뛴다** —
+    수 시간짜리라 중단·재시작이 필수다.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from analysis.realized_return import ReturnAssumptions, cash_reinvestment
+
+    treasury = ReturnAssumptions()
+    assumptions = (treasury, cash_reinvestment(treasury))
+
+    seed_list = list(seeds)
+    done = completed_keys(out_path, ("seed", "reinvest", "criterion"))
+    if done and verbose:
+        print(f"  이미 계산된 (seed, reinvest, criterion) {len(done)}쌍 — 건너뛴다", flush=True)
+
+    data = None
+    for seed in seed_list:
+        expected = {(str(seed), a.reinvest, c)
+                    for a in assumptions
+                    for c in ("pd (보정 전)", "E[XR]", "q_score")}
+        if expected <= done:
+            if verbose:
+                print(f"\nseed {seed}: 전부 계산됨 — 건너뜀", flush=True)
+            continue
+
+        if data is None:          # 첫 실제 계산 때만 원본을 읽는다
+            if verbose:
+                print("\n원본 로딩 (1회, 이후 seed에서 재사용)", flush=True)
+            data = load_pipeline_data()
+
+        t0 = time.time()
+        if verbose:
+            print(f"\n{'=' * 60}\nseed {seed}", flush=True)
+        bundle = build_validation_scores(seed=seed, verbose=verbose, data=data)
+        auc = float(np.mean(bundle["fold_auc"]))
+
+        for a in assumptions:
+            scores, realized, audit = scores_for_assumptions(bundle, a)
+            for crit, (score, lower) in scores.items():
+                if (str(seed), a.reinvest, crit) in done:
+                    continue
+                res = find_optimal_threshold(score, realized, lower)
+                append_row_csv(out_path, {
+                    "seed": seed, "reinvest": a.reinvest, "assumptions": a.label(),
+                    "criterion": crit, "fold_auc_mean": auc,
+                    "n_usable": audit["n_usable"], **res,
+                })
+                if verbose:
+                    print(f"  [{a.reinvest:8s}] {crit:12s} τ*={res['threshold']:.6f}  "
+                          f"승인율 {res['approval_rate']:.1%}  "
+                          f"Sharpe {res['sharpe']:.4f}  Δ{res['delta_sharpe']:+.4f}", flush=True)
+        if verbose:
+            print(f"  seed {seed} 완료 — {time.time() - t0:.0f}초  (fold AUC {auc:.5f})",
+                  flush=True)
+
+    return pd.read_csv(out_path) if out_path.exists() else pd.DataFrame()
+
+
+def summarize_full_repeats(df: pd.DataFrame) -> pd.DataFrame:
+    """K회 반복을 (재투자가정 × 랭킹기준)별로 요약한다.
+
+    `τ*`는 **중앙값**이 최종 확정값이다(#18) — 분포가 비대칭이고, "가장 좋았던 seed의 τ*"를
+    고르면 분할 운을 성과로 착각한다(승자의 저주).
+    """
+    g = df.groupby(["reinvest", "criterion"])
+    out = pd.DataFrame({
+        "K": g.size(),
+        "tau_median": g["threshold"].median(),
+        "tau_sd": g["threshold"].std(ddof=1),
+        "sharpe_mean": g["sharpe"].mean(),
+        "sharpe_sd": g["sharpe"].std(ddof=1),
+        "sharpe_max": g["sharpe"].max(),
+        "delta_mean": g["delta_sharpe"].mean(),
+        "delta_sd": g["delta_sharpe"].std(ddof=1),
+        "approval_mean": g["approval_rate"].mean(),
+    })
+    out["delta_se"] = out["delta_sd"] / np.sqrt(out["K"])
+    return out.reset_index()
+
+
 def summarize_repeats(repeats: pd.DataFrame) -> pd.DataFrame:
     """반복 결과 요약 — `τ*`는 **중앙값**을 우선 본다(분포가 비대칭이다)."""
     cols = ["threshold", "approval_rate", "sharpe", "sharpe_approve_all", "delta_sharpe"]
@@ -330,12 +427,35 @@ def summarize_repeats(repeats: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # 파이프라인 조립
 # ---------------------------------------------------------------------------
-def build_validation_scores(seed: int | None = None, verbose: bool = True) -> dict:
+def load_pipeline_data() -> tuple:
+    """원본에서 `(X, y, meta, outcome)`을 한 번 읽는다 — **K=50 반복에서 재사용하기 위한 것**.
+
+    `build_validation_scores()`를 그냥 반복 호출하면 seed마다 1.2GB 원본을 두 번(피처 테이블 +
+    실현수익률 입력) 다시 읽는다. seed당 2분이면 K=50에서 100분이 순수 I/O로 날아간다.
+    데이터는 seed와 무관하므로(분할만 바뀐다) 밖에서 한 번 읽어 넘긴다.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from analysis.realized_return import build_return_inputs
+    from preprocessing.preprocessor import build_feature_table
+
+    X, y, meta = build_feature_table()
+    return X, y, meta, build_return_inputs()
+
+
+def build_validation_scores(
+    seed: int | None = None,
+    verbose: bool = True,
+    data: tuple | None = None,
+) -> dict:
     """Train으로 학습·보정하고, Validation 점수를 만들 재료를 모은다.
 
     **모형은 재투자 가정과 무관하다** — 타깃이 이진 `loan_status`라 수익률 정의가 학습에
     개입하지 않는다(#19). 그래서 여기서 한 번만 학습하고, 가정별 계산은
     `scores_for_assumptions()`가 맡는다.
+
+    `data`로 `load_pipeline_data()`의 결과를 넘기면 원본을 다시 읽지 않는다(K=50 반복용).
     """
     import sys
 
@@ -358,7 +478,11 @@ def build_validation_scores(seed: int | None = None, verbose: bool = True) -> di
 
     cfg = load_config()
 
-    X, y, meta = build_feature_table()
+    if data is None:
+        X, y, meta = build_feature_table()
+        outcome = build_return_inputs()
+    else:
+        X, y, meta, outcome = data
     if seed is None:
         # 기준 실행 — 매니페스트 분할을 그대로 쓴다. Test는 잠긴 채로 남는다.
         parts = split_from_manifest(X, y, meta)
@@ -385,7 +509,7 @@ def build_validation_scores(seed: int | None = None, verbose: bool = True) -> di
         "p_va_cal": p_va_cal,
         "train_index": X_tr.index,
         "validation_index": X_va.index,
-        "outcome": build_return_inputs(),
+        "outcome": outcome,
         "fold_auc": fold_auc,
         "edges_fn": quantile_edges_by_term,
         "assign_fn": assign_quantile_by_term,
@@ -465,11 +589,63 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
     return scores, realized[ok], audit
 
 
+def parse_seed_spec(spec: str) -> list[int]:
+    """`'0-49'` · `'0-9,20'` · `'7'` 형태를 seed 목록으로 푼다."""
+    seeds: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            lo, hi = part.split("-")
+            seeds.extend(range(int(lo), int(hi) + 1))
+        elif part:
+            seeds.append(int(part))
+    return sorted(dict.fromkeys(seeds))
+
+
+def run_repeat(seed_spec: str) -> None:
+    """`--repeat` 경로 — K회 반복을 돌리고 요약을 출력한다."""
+    out_path = repo_root() / "outputs" / "sharpe_repeat_k50.csv"
+    seeds = parse_seed_spec(seed_spec)
+
+    print("=" * 78)
+    print(f"본 실행 — 재분할 K={len(seeds)}회 (seed {seeds[0]}~{seeds[-1]}) "
+          "× 랭킹기준 3종 × 재투자가정 2종")
+    print("=" * 78)
+    print("Test 20%는 열지 않는다 — Train+Validation 풀만 재분할한다(#18).")
+    print(f"산출(덧붙임) → {out_path.name}\n")
+
+    df = repeat_full_search(seeds, out_path)
+    if df.empty:
+        print("결과가 없다.")
+        return
+
+    print("\n" + "=" * 78)
+    print(f"요약 — τ*는 **중앙값**이 확정값이다 (실제 완료 K는 조합별로 표시)")
+    print("=" * 78)
+    summary = summarize_full_repeats(df)
+    print(summary.to_string(index=False, float_format=lambda v: f"{v: .5f}"))
+
+    summary_path = repo_root() / "outputs" / "sharpe_repeat_k50_summary.csv"
+    summary.to_csv(summary_path, index=False)
+    print(f"\n요약 산출물 → {summary_path.name}")
+    print("다음 단계: 승자 기준을 확정한 뒤 `final_evaluation.py`로 Test 1회.")
+
+
 def main() -> None:
+    import argparse
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from analysis.realized_return import ReturnAssumptions, cash_reinvestment
+
+    ap = argparse.ArgumentParser(description="Sharpe threshold 탐색")
+    ap.add_argument("--repeat", metavar="SEEDS", default=None,
+                    help="재분할 반복 실행 (예: '0-49'). 생략하면 매니페스트 분할 1회만 돈다.")
+    args = ap.parse_args()
+
+    if args.repeat:
+        run_repeat(args.repeat)
+        return
 
     out_dir = repo_root() / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)

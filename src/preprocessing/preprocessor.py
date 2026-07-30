@@ -121,7 +121,9 @@ def coerce_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_feature_table(
-    nrows: int | None = None, verify_sample: bool = True
+    nrows: int | None = None,
+    verify_sample: bool = True,
+    apply_decisions: bool = True,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     """원본 → `(X, y, meta)`.
 
@@ -130,9 +132,13 @@ def build_feature_table(
     (`src/preprocessing/AGENTS.md` 「누수 방지」).
 
     `nrows`를 주면 원본 앞부분만 읽으므로 표본 건수 검증을 건너뛴다 — 디버깅 전용이다.
+
+    `apply_decisions=False`면 `loader.EXCLUDED_BY_DECISION`(현재 `zip_code`)을 **빼지 않고**
+    돌려준다 — 제외 전후를 나란히 비교해야 하는 `model_comparison.py` 전용이다.
+    본 파이프라인은 기본값을 쓴다.
     """
     head = load_raw_loans(nrows=5)
-    features, _ = select_feature_columns(list(head.columns))
+    features, _ = select_feature_columns(list(head.columns), apply_decisions=apply_decisions)
 
     needed = sorted(set(features) | set(META_COLUMNS) | {TARGET_COLUMN, "issue_d", "term"})
     available = [c for c in needed if c in head.columns]

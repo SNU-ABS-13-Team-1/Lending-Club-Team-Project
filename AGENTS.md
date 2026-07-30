@@ -59,7 +59,8 @@
 | └ 서비스수수료(~1%) 반영 | ❌ 미확정 (잠정 0%로 진행 가능) | #20 |
 | 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ⏳ **근거 확보 — 팀 확정 대기** (`q_score` 우세) | #5·#20 |
 | 확률보정 (isotonic) | ⏳ **구현·검증 완료 — 팀 확정 대기** | C-4 |
-| 피처에서 `zip_code` 제외 | ⏳ **근거 확보 — 팀 확정 대기** (CV AUC +0.0072, K=50 검증 남음) | `model_comparison_kgj.md` |
+| 피처에서 `zip_code` 제외 | ✅ **확정 — 제외한다** (짝지은 검증 24/24 우세, Δ Sharpe +0.0122) | `model_comparison_kgj.md` · `loader.EXCLUDED_BY_DECISION` |
+| 최종 모형 선택 규칙 | ✅ **확정 — K=50 중 Validation Sharpe 최고 모델** (2026-07-30) | `final_evaluation.py` |
 | 모형 후보 제출 규격 (CV 평균±sd·OOF PD) | ⏳ **규격안 제출 — 팀 확정 대기** | `model_comparison_kgj.md` |
 | 시각화 규칙 | ❌ 미착수 | — |
 
@@ -248,7 +249,8 @@
 | `src/analysis/model.py` | XGBoost PD 모형·K-fold OOF·**isotonic 확률보정**·PD 분위 경계 | 동작 |
 | `src/analysis/realized_return.py` | 구조 A′ 실현수익률·`E[XR]`·`Var[XR]`·`q_score` | 동작 (**잠정 가정**) |
 | `src/analysis/oof_diagnostics.py` | 진단 C-1/C-2/C-3/**C-4** — 설계 선택 실측 검증 | 동작 |
-| `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교 | 동작 |
+| `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교·**K=50 본실행**(`--repeat 0-49`) | 동작 |
+| `src/analysis/final_evaluation.py` | **Test 1회 평가** — 이긴 모델 재현·고정 τ* 적용·최종 Sharpe 확정 | 동작 |
 | `src/viz/plots.py` | 차트 생성 | **뼈대(TODO)** |
 
 > ⚠️ `realized_return.py`는 미확정 3건을 **잠정값**(ⓒ발행시점 고정 · 수수료 0% · 조기상환 보정 0)으로

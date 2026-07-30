@@ -111,6 +111,15 @@
 - Train으로 부도확률 예측 모형을 학습하고, Validation으로 threshold를 확정한다.
 - **Test set으로 모형을 재조정하지 않는다.** Train으로 학습한 모형과 Validation으로 확정한 threshold를 그대로 적용해 검증만 한다.
 - Threshold 확정 후에는 Train 전체(60%)로 모형을 재학습한 뒤 Test에 적용한다.
+  - **어느 모형인가 — K=50 중 Validation Sharpe가 가장 높은 모형** (2026-07-30 결정).
+    50개는 같은 스펙이고 80% 풀을 6:2로 가른 **분할만 다르므로**, 이긴 것은
+    `(seed, train 분할, 모형, 보정기, 분위경계, 칸별 통계표, τ*)` 한 묶음이다. 그 seed를
+    `resplit_train_validation(seed)`로 **똑같이 재현**해 Test에 적용한다 — 학습 풀은 그 seed의
+    Train 60%이며, 80%로 다시 학습하면 τ*를 만든 모형과 다른 모형이 Test에 간다.
+    구현은 `final_evaluation.py`. ⚠️ `decision_log.md` 등재는 팀 확인 후.
+  - 최고값 선택은 분할 운을 성과에 포함한다. 그래서 산출 CSV에 **K=50 τ* 중앙값을 적용한
+    `median_tau` 행을 함께** 남긴다(추가 학습 없음) — 두 값의 차이가 선택 규칙이 만든 낙관분이다.
+    **Validation 최고값을 Test 성과로 인용하지 않는다** — Test 값이 최종 성과다.
 - **사전/사후(pre/post-approval) 변수 구분을 피처 선택에 적용한다** (`decision_log.md` #1 확정). 투자자 관점이므로 `grade`·`sub_grade`·`int_rate`·`installment`·`funded_amnt`·`funded_amnt_inv`·`issue_d`·`initial_list_status`는 **사전 변수**다. 라벨 원본은 `data/processed/variable_dictionary_byGJ.xlsx`의 `is_pre_approval`.
   - **LC 조건변수(`grade`·`sub_grade`·`int_rate`)는 피처로 투입한다** (#17 ③, 2026-07-29 회의 확정).
     ⚠️ 기존 문서의 0.68대는 조건변수를 뺀 Lean 스펙 값이므로 섞어 인용하지 않는다.

@@ -65,6 +65,19 @@
 - `R`·`rf`·`XR`은 **threshold 탐색과 Sharpe 계산 단계에서 `loan_id`로 결합**해 쓴다. 피처 테이블에
   미리 붙여두지 않는다 — 붙여두면 실수로 학습에 들어간다.
 
+### 결정으로 제외한 피처 — 누수와 구분한다
+
+`loader.EXCLUDED_BY_DECISION`은 **누수도 식별자도 아닌데 실측 결과 모형을 깎아서** 뺀 변수다.
+`NON_FEATURE_PRE_APPROVAL`(식별자·자유서술)과 목록을 합치지 않는다 — 저쪽은 "원리상 피처가
+아니다", 이쪽은 "돌려보니 깎는다"이므로 사유가 섞이면 나중에 판단 근거를 잃는다.
+
+- 현재 **`zip_code` 1건** (911범주 고카디널리티 → Train 칸별 부도율 암기). 같은 재분할에
+  제외 전후를 짝지어 돌린 검증에서 **24 seed 전부, 6조합 모두 제외 쪽 우세**였고 국채·`q_score`
+  기준 Δ Sharpe **+0.0122**(sd 0.0020)였다. 근거: `outputs/reports/model_comparison_kgj.md`.
+- 본 파이프라인은 기본값(`apply_decisions=True`)으로 제외된 **101개 피처**를 받는다.
+  **비교 실험만** `build_feature_table(apply_decisions=False)`로 102개(제외 전)를 받는다 —
+  `model_comparison.py`의 `cv`·`stability` 블록이 그 경우다.
+
 ### 결과 파일 저장 규칙
 
 - **표본 실행이 전수 결과를 덮어쓰지 않게 한다.** 출력 경로를 분리한다: 전수는 `*_full.csv`,
