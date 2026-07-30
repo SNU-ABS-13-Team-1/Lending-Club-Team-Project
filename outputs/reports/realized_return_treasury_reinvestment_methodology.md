@@ -4,11 +4,19 @@ tags:
   - lending-club
   - realized-return
   - treasury-reinvestment
-status: finalized
+status: proposed
 updated: 2026-07-30
 ---
 
-# Lending Club 실현수익률 계산 확정 명세
+# Lending Club 실현수익률 계산 명세 (제안, #23)
+
+> ⏳ **팀 확정 전이다.** 작성자(유명곤)가 제출한 개정안이며 `decision_log.md`에 아직 반영되지
+> 않았다. 문서 권위 순서상 확정 사항의 단일 원본은 `decision_log.md`이므로(`AGENTS.md`),
+> **이 문서를 근거로 구현을 바꾸지 않는다.** 원안의 `status: finalized`는 팀 승인 전이라
+> `proposed`로 조정했다 — **본문 수식·수치·논지는 수정하지 않았다**(강권재, 2026-07-30).
+>
+> 기존 확정 사항과 충돌하는 항목 및 교차검토 결과는
+> `outputs/reports/methodology_23_review_kgj.md`에 있다. 함께 읽는다.
 
 > 대출 한 건 전체를 하나의 상품으로 보고, 계약만기 전 현금흐름은 만기까지 재투자하고 계약만기 후 현금흐름은 만기 시점으로 할인한 뒤 계약기간 기준으로 연율화한다.
 

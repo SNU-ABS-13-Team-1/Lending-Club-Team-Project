@@ -167,6 +167,15 @@
 | **OOF 파이프라인 진단 4종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전·**확률보정**) | `oof_diagnostics_kgj.md` |
 | **Sharpe threshold 탐색** (랭킹 기준 3종 비교·Δ의 재투자 가정 안정성·절대 Sharpe 병기 근거) | `sharpe_threshold_kgj.md` |
 | **PD 모형 후보 교차검증** (팀원 3인 스펙 6종 비교·**`zip_code` 제외 제안**·후보 제출 규격안) | `model_comparison_kgj.md` |
+| ⏳ **실현수익률 개정안** (#23 제안 — GS1M 재투자·월별 현금흐름 재구성·만기 후 역할인) | `realized_return_treasury_reinvestment_methodology.md` |
+| ⏳ **초과수익 선별 개정안** (#23 제안 — 금액가중 목적함수 `S_XS`·조건부 모멘트) | `excess_return_sharpe_selection_methodology.md` |
+| **#23 개정안 교차검토** (일치 6·채택권고 3·**팀결정 3**·회의 안건 A~D) | `methodology_23_review_kgj.md` |
+| 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
+
+> ⏳ 표시된 #23 문서 2건은 **작성자 제출 개정안이며 팀 확정이 아니다.** 원안의
+> `status: finalized`를 `proposed`로 조정했다(본문 무수정). **이 문서들을 근거로 구현을
+> 바꾸지 않는다** — #20(구조 A′ 건별 계산)·#18(Test 고정·K=50)과 충돌하는 항목이 3건 있다.
+> 먼저 `methodology_23_review_kgj.md`를 읽는다.
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -181,7 +190,8 @@
 | `split_manifest_6_2_2_seed20260730.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB, **현행** — seed는 `config.yaml`이 결정). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다. 옛 `…seed42` 파일은 보존만 하고 쓰지 않는다 |
 | `shared/` (parquet 4종 + `columns.json` + `README_공유데이터.md`) | **팀 공유용 전처리 데이터셋**(git 미추적, 71.7MB) — `export_shared_dataset.py`가 생성, `load_shared()`로 읽는다. **사후변수는 `*_outcome.parquet`로 분리**(피처에 합치면 누수). CSV 변환 금지(category dtype 깨짐) |
 | `variable_dictionary_byGJ.xlsx` | 변수 사전 + 사전/사후 라벨 (**단일 원본**) |
-| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
+| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 `rf` (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
+| `us_treasury_GS1M_monthly_*.csv` | ⏳ #23 제안용 1개월 국채 — **재투자·역할인 계수 전용, `rf`가 아니다.** 출처 카드 있음 |
 | `macro_*_monthly_*.csv` | 거시경제지표 (독립변수 후보) |
 | `*.source.md` | **출처 카드** — 짝이 되는 데이터 파일의 출처·체크섬·검증법 |
 
@@ -199,6 +209,7 @@
 | 위치 | 내용 | 상태 |
 | --- | --- | --- |
 | `src/preprocessing/fetch_macro_*.py` (4개) | 거시지표 수집 (다운로드+검증+저장) | 동작 |
+| `src/preprocessing/fetch_treasury_gs1m.py` | GS1M 수집 (⏳ #23 제안용 — 재투자·역할인 계수) | 동작 |
 | `src/preprocessing/label_pre_post_by_rule.py` | 규칙 기반 사전/사후 라벨링 | 동작 |
 | `src/preprocessing/export_split_manifest.py` | **6:2:2 분할 매니페스트** 생성·체크섬 대조(`--verify`) | 동작 |
 | `src/preprocessing/export_shared_dataset.py` | 팀 공유 parquet 내보내기 + 읽기 진입점 `load_shared()`/`load_shared_outcome()` | 동작 |

@@ -1,14 +1,24 @@
 ---
 title: 조건부 초과수익 기반 대출 선별 계산 명세
-status: calculation-core-fixed
+status: proposed
 updated: 2026-07-30
 scope: 실현 초과수익률, Train 조건부 모멘트, 대출 선별점수, Validation 목적함수
 related:
   - outputs/reports/realized_return_treasury_reinvestment_methodology.md
+  - outputs/reports/methodology_23_review_kgj.md
   - JDQS 2026 참고논문 (jdqs-02-2026-0013en)
 ---
 
-# 조건부 초과수익 기반 대출 선별 계산 명세
+# 조건부 초과수익 기반 대출 선별 계산 명세 (제안, #23)
+
+> ⏳ **팀 확정 전이다.** 작성자(유명곤)가 제출한 개정안이며 `decision_log.md`에 반영되지
+> 않았다. **이 문서를 근거로 구현을 바꾸지 않는다.** 원안의 `status: calculation-core-fixed`는
+> 팀 승인 전이라 `proposed`로 조정했다 — **본문은 수정하지 않았다**(강권재, 2026-07-30).
+>
+> ⚠️ 본문 §8.1 「현재 확정」은 **작성자 기준의 확정**이며 팀 확정과 다르다. 특히 정상상환
+> 조건부 평균을 칸 평균 `m₀,g`로 두는 부분은 `decision_log.md` #20이 **구조 A′(정상상환 =
+> 건별 계약 현금흐름)로 확정하며 기각한 방향**이고, Test 재추출·반복 횟수(30~100)는 #18의
+> Test 고정·K=50과 어긋난다. 대조표는 `methodology_23_review_kgj.md`에 있다.
 
 ## 1. 이번 단계의 결론
 
