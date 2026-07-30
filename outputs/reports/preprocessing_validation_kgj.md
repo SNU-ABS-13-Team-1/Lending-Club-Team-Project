@@ -659,4 +659,9 @@ GBM은 결측 행을 알아서 분기시키기 때문이다. 오히려 **36개�
 3. 확정된 표본 정의로 1~6절 수치 재산출 + 집계표 CSV를 `outputs/`에 커밋
    (원본 175만 행은 git에 없으므로 팀원의 유일한 대조 수단 — `AGENTS.md` 「단계별 사용 데이터」)
 4. 시트(`lending_club_변수분류_류성환.xlsx_v2`) 개정 — 2절 ①~④ + 3절 `emp_length`
-5. 확정된 규칙으로 `src/preprocessing/preprocessor.py` 구현 (현재 뼈대)
+5. ~~확정된 규칙으로 `src/preprocessing/preprocessor.py` 구현 (현재 뼈대)~~
+   → **완료 (2026-07-30, 커밋 `7e1cb9d`)** — `loader.py`·`preprocessor.py`.
+   현행 상태는 `src/preprocessing/AGENTS.md` 「구현 — 어느 함수를 부르는가」 참고.
+
+> ⚠️ 이 절은 **2026-07-29 시점의 다음 단계**다. 1·2·3·4는 이후 회의(#15~#20)에서 진행됐으니
+> 현재 미결 목록은 `decision_log.md` 「다음 논의 필요」를 본다.

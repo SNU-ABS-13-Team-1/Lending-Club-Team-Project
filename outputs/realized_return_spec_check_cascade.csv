@@ -1,0 +1,11 @@
+step,rule,dropped,remaining
+1,issue_d 파싱 가능,0,1117571
+2,term 파싱 가능,0,1117571
+3,last_pymnt_d 존재,2043,1115528
+4,K̃ >= 0 (음수 아님),0,1115528
+5,funded_amnt 유효(>0),0,1115528
+6,K>=2일 때 installment 존재,0,1115528
+7,K>=2일 때 last_pymnt_amnt 존재,0,1115528
+8,K>=2일 때 L <= C_regular,2976,1112552
+9,C_recovery >= 0,0,1112552
+10,국채 커버리지 충족,312622,799930
