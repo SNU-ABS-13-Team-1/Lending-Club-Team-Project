@@ -18,6 +18,12 @@ outputs/excess_return*.csv
 data/processed/realized_return*.csv
 data/processed/excess_return*.csv
 
+# 위 규칙의 예외 — 재현 스크립트가 내는 **요약 집계표**(전부 1KB 미만)는 커밋한다.
+# 위 glob이 의도(전수 건별 결과 = `*_full.csv` 차단)보다 넓어 집계표까지 잡기 때문이다.
+!outputs/realized_return_spec_check_cascade.csv
+!outputs/realized_return_spec_check_R_by_status_term.csv
+!outputs/realized_return_sensitivity.csv
+
 # 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
 share/
 
