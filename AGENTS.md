@@ -206,7 +206,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 파일 | 내용 |
 | --- | --- |
 | `lending_club_2020_train_sample_9000.csv` | 대출 표본 9,000건 — **분석에 쓰지 않음**(과거 산출물 재현용) |
-| `split_manifest_6_2_2_seed42.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다 |
+| `split_manifest_6_2_2_seed20260730.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB, **현행** — seed는 `config.yaml`이 결정). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다. 옛 `…seed42` 파일은 보존만 하고 쓰지 않는다 |
 | `variable_dictionary_byGJ.xlsx` | 변수 사전 + 사전/사후 라벨 (**단일 원본**) |
 | `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
 | `macro_*_monthly_*.csv` | 거시경제지표 (독립변수 후보) |
@@ -273,8 +273,9 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 >
 > ⚠️ **PD에는 두 역할이 있고 서로 다른 값을 쓴다** (진단 C-4, 2026-07-30 실측):
 > **분위 경계·배정과 승인선 점수는 보정 전 PD**, **`E[XR]`·`Var[XR]`의 `p̂`만 isotonic 보정 후 PD**다.
-> 보정은 Validation ECE를 0.710 → 0.265%p로 줄이지만(AUC는 −0.00004), 계단함수라 고유값이
-> 42.8만 → 125개로 뭉쳐서 **보정된 PD로 분위를 자르면 칸 인원이 최대 3.13%p 기운다.**
+> 보정은 Validation ECE를 0.714 → 0.268%p로 줄이지만(AUC는 −0.00002), 계단함수라 고유값이
+> 42.9만 → 127개로 뭉쳐서 **보정된 PD로 분위를 자르면 칸 인원이 최대 2.10%p 기운다**
+> (옛 seed 42 분할에서는 3.13%p — 기울기 크기는 분할에 따라 다르다).
 > ⚠️ `decision_log.md` 「부수 결정」의 *"isotonic은 단조변환이라 분위 경계가 바뀌지 않는다"* 는
 > **틀렸다** — 정정이 필요하다(팀 확인 후).
 >
@@ -287,7 +288,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 >
 > `sharpe_optimizer.py`의 산출물(근거는 `sharpe_threshold_kgj.md`):
 > `outputs/sharpe_threshold_comparison.csv` — 랭킹 기준 3종 + approve-all × 재투자 가정 2종의
-> `τ*`·승인율·**절대 Sharpe**·Δ Sharpe. 실측은 `q_score`(Sharpe 0.279 · Δ +0.059)를 지지하나
+> `τ*`·승인율·**절대 Sharpe**·Δ Sharpe. 실측은 `q_score`(Sharpe 0.289 · Δ +0.064)를 지지하나
 > **랭킹 기준 확정은 팀 결정**이다(#5·#20).
 > `{label}`은 `ReturnAssumptions.label()`이며 현재는 `provisional_treasury_issue_fixed_fee0pct`다 —
 > **재투자 가정을 바꾸면 파일명이 바뀐다**(#18, 통계표까지 다시 만들어야 하므로 의도된 설계).

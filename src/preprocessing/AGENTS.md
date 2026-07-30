@@ -124,13 +124,14 @@ Test 건이 다른 사람의 Train에 들어가** 개인 기준으로는 규칙�
 
 | 파일 | 내용 |
 | --- | --- |
-| `data/processed/split_manifest_6_2_2_seed42.csv.gz` | `id`·`split`·`target` (723,563행, **2.35MB gzip** — 커밋 가능) |
-| `data/processed/split_manifest_6_2_2_seed42.source.md` | 출처 카드 (seed·비율·건수·부도율·체크섬) |
+| `data/processed/split_manifest_6_2_2_seed20260730.csv.gz` | `id`·`split`·`target` (723,563행, **2.35MB gzip** — 커밋 가능). **현행** — seed는 `config.yaml`의 `random_seed.default`가 결정한다 |
+| `data/processed/split_manifest_6_2_2_seed20260730.source.md` | 출처 카드 (seed·비율·건수·부도율·체크섬) |
 
 - **생성**: `python src/preprocessing/export_split_manifest.py` (1회. 이미 만들어져 있다)
 - **대조**: `python src/preprocessing/export_split_manifest.py --verify`
   → 자기 원본으로 만든 분할이 매니페스트와 같은지 **SHA-256 체크섬**으로 확인한다.
-  현행 체크섬 `cffd9896…4d5c`. 불일치하면 **매니페스트를 새로 만들지 말고 원인을 먼저 찾는다** —
+  현행 체크섬 `26bf46f9…e57c`(seed 20260730). 옛 `…seed42` 매니페스트(체크섬 `cffd9896…4d5c`)는
+  보존만 하고 쓰지 않는다. 불일치하면 **매니페스트를 새로 만들지 말고 원인을 먼저 찾는다** —
   이미 그 분할로 낸 산출물이 전부 무효가 된다.
 - **사용**: `split_6_2_2()`를 직접 쓰지 말고 **`split_from_manifest(X, y, meta)`** 를 쓴다.
   `id`로 매칭하므로 행 순서·pandas·sklearn 버전과 무관하다.
