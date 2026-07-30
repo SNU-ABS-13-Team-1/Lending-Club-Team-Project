@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -162,6 +163,75 @@ def build_feature_table(
     return X, y, meta
 
 
+# ---------------------------------------------------------------------------
+# 분할 체계 — 두 개가 공존한다
+# ---------------------------------------------------------------------------
+#: `{scheme: (train, validation, test)}`. **비율을 코드에 흩어 놓지 않는다.**
+#:
+#: - `"6_2_2"` — 1차 데이터 안에서 Test 20%를 떼는 원래 체계(#13 ④·#18). `config.yaml`이
+#:   단일 출처이며 여기 적힌 값은 그 대조용이다.
+#: - `"7_3"`  — **1차 데이터 전량을 Train/Validation으로 쓰고 Test는 별도 파일**
+#:   (`lending_club_2020_test_2nd.csv`, 481,833건)로 삼는 체계(#30, 2026-07-31 확정).
+#:   6:2:2 대비 Train +16.7%(434,137 → 506,494) · Validation +50.0%(144,713 → 217,069).
+SPLIT_SCHEMES: dict[str, tuple[float, float, float]] = {
+    "6_2_2": (0.6, 0.2, 0.2),
+    "7_3": (0.7, 0.3, 0.0),
+}
+
+DEFAULT_SCHEME = "6_2_2"
+
+
+def scheme_ratios(scheme: str) -> tuple[float, float, float]:
+    """분할 체계의 `(train, validation, test)` 비율. 알 수 없는 이름이면 예외다.
+
+    `"6_2_2"`는 `config.yaml`을 읽어 돌려준다 — 그쪽이 단일 출처이므로 값이 어긋나면
+    **조용히 넘어가지 않고** 예외로 알린다.
+    """
+    if scheme not in SPLIT_SCHEMES:
+        raise ValueError(f"알 수 없는 분할 체계: {scheme!r} (가능: {sorted(SPLIT_SCHEMES)})")
+    if scheme != DEFAULT_SCHEME:
+        return SPLIT_SCHEMES[scheme]
+
+    cfg = load_config().split
+    ratios = (cfg.train, cfg.validation, cfg.test)
+    if not np.isclose(ratios, SPLIT_SCHEMES[scheme]).all():
+        raise ValueError(
+            f"config.yaml의 split {ratios}이 '{scheme}' 정의 {SPLIT_SCHEMES[scheme]}와 다르다 — "
+            "둘 중 어느 쪽이 맞는지 정하고 맞춰라."
+        )
+    return ratios
+
+
+def split_7_3(
+    X: pd.DataFrame,
+    y: pd.Series,
+    meta: pd.DataFrame | None = None,
+    seed: int | None = None,
+) -> dict[str, tuple]:
+    """랜덤 7:3 분할 — **Test 칸이 없다** (#30).
+
+    1차 데이터(723,563건) 전량을 Train 70% / Validation 30%로 가른다. Test는 이 표본
+    안에서 떼지 않고 **별도 파일**(`loader.second_test_path()`)을 쓴다.
+
+    부도율 16.2%가 한쪽에 치우치지 않도록 `stratify`를 건다.
+    """
+    seed = load_config().random_seed.default if seed is None else seed
+    _, val_share, _ = scheme_ratios("7_3")
+
+    keys = pd.Series(X.index, index=X.index)
+    train_keys, val_keys = train_test_split(
+        keys, test_size=val_share, random_state=seed, stratify=y
+    )
+
+    def take(part: pd.Series) -> tuple:
+        idx = part.index
+        if meta is None:
+            return X.loc[idx], y.loc[idx]
+        return X.loc[idx], y.loc[idx], meta.loc[idx]
+
+    return {"train": take(train_keys), "validation": take(val_keys)}
+
+
 def split_6_2_2(
     X: pd.DataFrame,
     y: pd.Series,
@@ -205,23 +275,27 @@ def split_6_2_2(
     }
 
 
-def load_split_manifest(seed: int | None = None) -> pd.Series:
+def load_split_manifest(
+    seed: int | None = None, scheme: str = DEFAULT_SCHEME
+) -> pd.Series:
     """`id → split` 매니페스트를 읽는다. 인덱스는 `id`(문자열)다.
 
     매니페스트는 `src/preprocessing/export_split_manifest.py`가 만든다. 없으면 예외다 —
     **임의로 seed 분할로 대체하지 않는다.** 조용히 다른 분할로 넘어가면 팀원 간 Test가
     어긋나는데 아무도 모르게 된다.
+
+    `scheme`은 `"6_2_2"` 또는 `"7_3"`이며 **파일이 다르다** — 서로 덮어쓰지 않는다.
     """
     from preprocessing.export_split_manifest import manifest_path
 
     cfg = load_config()
     seed = cfg.random_seed.default if seed is None else seed
-    path = manifest_path(seed)
+    path = manifest_path(seed, scheme=scheme)
     if not path.exists():
         raise FileNotFoundError(
             f"분할 매니페스트가 없다: {path}\n"
-            "먼저 `python src/preprocessing/export_split_manifest.py`로 만들거나, "
-            "팀 저장소에서 받아라."
+            f"먼저 `python src/preprocessing/export_split_manifest.py --scheme {scheme}`로 "
+            "만들거나, 팀 저장소에서 받아라."
         )
     m = pd.read_csv(path, dtype={"id": str})
     return m.set_index("id")["split"]
@@ -233,6 +307,7 @@ def split_from_manifest(
     meta: pd.DataFrame,
     seed: int | None = None,
     unlock_test: bool = False,
+    scheme: str = DEFAULT_SCHEME,
 ) -> dict[str, tuple]:
     """**매니페스트 기준** 6:2:2 분할 — 팀원 전원이 동일한 분할을 쓰는 경로.
 
@@ -259,7 +334,7 @@ def split_from_manifest(
     (분할 자체는 동일하고 fold 구성만 바뀐다). 파이프라인을 이 함수로 넘긴 뒤에는 산출물을
     한 번 다시 만들어야 한다.
     """
-    manifest = load_split_manifest(seed)
+    manifest = load_split_manifest(seed, scheme=scheme)
     ids = meta["id"].astype(str)
 
     assigned = ids.map(manifest)
@@ -277,6 +352,15 @@ def split_from_manifest(
     parts = {"train": take("train"), "validation": take("validation")}
     n_test = int((assigned == "test").sum())
 
+    if not n_test:
+        # 7:3 — Test 칸이 아예 없다. 최종 평가는 별도 파일(2nd Test)로 한다(#30).
+        if unlock_test:
+            raise ValueError(
+                f"'{scheme}' 매니페스트에는 Test 칸이 없다 — unlock_test는 쓸 수 없다. "
+                "최종 평가는 `loader.second_test_path()`(2nd Test)로 한다(#30)."
+            )
+        return parts
+
     if unlock_test:
         print(f"⚠️  Test set을 열었다 ({n_test:,}건). 모형·threshold 확정 후 **1회만** 쓴다 — "
               "여기서 무언가를 고르거나 조정하면 규칙 위반이다.")
@@ -292,6 +376,7 @@ def resplit_train_validation(
     meta: pd.DataFrame,
     seed: int,
     manifest_seed: int | None = None,
+    scheme: str = DEFAULT_SCHEME,
 ) -> dict[str, tuple]:
     """**Test를 고정한 채** Train+Validation 풀만 재분할한다 (#18의 K=50 반복용).
 
@@ -302,11 +387,17 @@ def resplit_train_validation(
     **Test 구성까지 매번 바꾼다** — seed마다 다른 대출이 Test에 들어가므로 "Test를 고정해두고"가
     깨지고, 어떤 seed의 Test 건이 다른 seed의 Train에 들어가 사실상 Test가 오염된다.
 
-    풀 안에서 Validation 비율은 `0.2 / (0.6 + 0.2) = 0.25`다. 부도율이 16.2%로 치우칠 수 있어
-    `stratify`를 건다.
+    풀 안의 Validation 비율은 체계마다 다르다.
+
+    | scheme | 풀 | Validation 비율 | Train / Validation |
+    | --- | --- | --- | --- |
+    | `6_2_2` | 매니페스트의 비Test 80% | `0.2/(0.6+0.2)` = **0.25** | 434,137 / 144,713 |
+    | `7_3` | **표본 전량**(Test 칸 없음) | `0.3/(0.7+0.3)` = **0.30** | 506,494 / 217,069 |
+
+    `7_3`에서도 Test가 흔들리지 않는다 — Test가 애초에 이 표본 밖(별도 파일)이기 때문이다(#30).
+    부도율이 16.2%로 치우칠 수 있어 `stratify`를 건다.
     """
-    cfg = load_config()
-    parts = split_from_manifest(X, y, meta, seed=manifest_seed)
+    parts = split_from_manifest(X, y, meta, seed=manifest_seed, scheme=scheme)
 
     # 풀의 **순서를 `id`로 고정한다.** `train_test_split`이 위치를 셔플하므로, 순서가 팀원마다
     # 다르면 같은 seed로도 다른 Train/Validation이 나온다. 원본 행번호로 정렬하면 원본 파일의
@@ -314,7 +405,8 @@ def resplit_train_validation(
     pool_ids = pd.concat([parts["train"][2]["id"], parts["validation"][2]["id"]]).astype(str)
     pool_idx = pool_ids.sort_values(kind="mergesort").index
 
-    val_share_of_pool = cfg.split.validation / (cfg.split.train + cfg.split.validation)
+    tr_share, va_share, _ = scheme_ratios(scheme)
+    val_share_of_pool = va_share / (tr_share + va_share)
     keys = pd.Series(pool_idx, index=pool_idx)
     train_keys, val_keys = train_test_split(
         keys,

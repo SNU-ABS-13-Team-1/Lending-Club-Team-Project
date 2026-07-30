@@ -326,6 +326,7 @@ def repeat_full_search(
     seeds: Iterable[int],
     out_path: Path,
     verbose: bool = True,
+    scheme: str = "6_2_2",
 ) -> pd.DataFrame:
     """**본 실행** — 재분할 K회 × 랭킹기준 3종 × 재투자가정 2종의 `τ*`를 한 번에 낸다 (#18).
 
@@ -371,7 +372,7 @@ def repeat_full_search(
         t0 = time.time()
         if verbose:
             print(f"\n{'=' * 60}\nseed {seed}", flush=True)
-        bundle = build_validation_scores(seed=seed, verbose=verbose, data=data)
+        bundle = build_validation_scores(seed=seed, verbose=verbose, data=data, scheme=scheme)
         auc = float(np.mean(bundle["fold_auc"]))
 
         for a in assumptions:
@@ -444,10 +445,21 @@ def load_pipeline_data() -> tuple:
     return X, y, meta, build_return_inputs()
 
 
+def repeat_output_path(scheme: str) -> Path:
+    """K=50 결과 CSV 경로. **체계마다 다른 파일**이라 서로 덮어쓰지 않는다 (#30).
+
+    `"6_2_2"`는 기존 이름을 유지한다 — 그 파일은 **조기상환 보정 이전**(계약 현금흐름)
+    실행 기록이라 지금 구현으로 다시 만들면 값이 달라진다. 섞어 인용하지 않는다.
+    """
+    stem = "sharpe_repeat_k50" if scheme == "6_2_2" else f"sharpe_repeat_k50_{scheme}"
+    return repo_root() / "outputs" / f"{stem}.csv"
+
+
 def build_validation_scores(
     seed: int | None = None,
     verbose: bool = True,
     data: tuple | None = None,
+    scheme: str = "6_2_2",
 ) -> dict:
     """Train으로 학습·보정하고, Validation 점수를 만들 재료를 모은다.
 
@@ -485,11 +497,11 @@ def build_validation_scores(
         X, y, meta, outcome = data
     if seed is None:
         # 기준 실행 — 매니페스트 분할을 그대로 쓴다. Test는 잠긴 채로 남는다.
-        parts = split_from_manifest(X, y, meta)
+        parts = split_from_manifest(X, y, meta, scheme=scheme)
         seed = cfg.random_seed.default
     else:
         # K=50 반복 — **Test를 고정한 채** Train+Validation 풀만 재분할한다(#18).
-        parts = resplit_train_validation(X, y, meta, seed=seed)
+        parts = resplit_train_validation(X, y, meta, seed=seed, scheme=scheme)
     X_tr, y_tr, _ = parts["train"]
     X_va, y_va, _ = parts["validation"]
     if verbose:
@@ -543,6 +555,7 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
         build_excess_returns,
         default_cell_stats,
         expected_excess_return,
+        normal_cell_stats,
         q_score,
         variance_excess_return,
     )
@@ -556,17 +569,28 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
     q_tr = bundle["assign_fn"](bundle["pd_oof_raw"], term_tr, edges)
     q_va = bundle["assign_fn"](bundle["p_va_raw"], term_va, edges)
 
-    stats = default_cell_stats(xr["xr_default"].loc[tr_idx], q_tr, term_tr)
-    mu_map, var_map = stats["mu"].to_dict(), stats["var"].to_dict()
+    def cell_lookup(stat: pd.Series, keys: list) -> pd.Series:
+        m = stat.to_dict()
+        return pd.Series([m.get(k, np.nan) for k in keys], index=va_idx)
+
     keys = list(zip(term_va, q_va))
-    mu_default = pd.Series([mu_map.get(k, np.nan) for k in keys], index=va_idx)
-    var_default = pd.Series([var_map.get(k, np.nan) for k in keys], index=va_idx)
+    d_stats = default_cell_stats(xr["xr_default"].loc[tr_idx], q_tr, term_tr)
+    mu_default = cell_lookup(d_stats["mu"], keys)
+    var_default = cell_lookup(d_stats["var"], keys)
+
+    # 정상상환 칸별 통계표 — **조기상환 보정**과 `var_정상` (#20 B팀 1순위, 2026-07-31)
+    n_stats = normal_cell_stats(
+        xr["xr_normal"].loc[tr_idx], xr["xr_normal_realized"].loc[tr_idx], q_tr, term_tr
+    )
+    prepay_adj = cell_lookup(n_stats["prepay_adj"], keys)
+    var_normal = cell_lookup(n_stats["var"], keys)
 
     # E[XR]·Var[XR]의 p̂는 **보정 후** PD (진단 C-4)
     xr_va = xr.loc[va_idx]
-    e_xr = expected_excess_return(bundle["p_va_cal"], xr_va["xr_normal"], mu_default)
+    xr_normal_adj = xr_va["xr_normal"] - prepay_adj
+    e_xr = expected_excess_return(bundle["p_va_cal"], xr_normal_adj, mu_default)
     v_xr = variance_excess_return(
-        bundle["p_va_cal"], xr_va["xr_normal"], mu_default, var_default, var_normal=0.0
+        bundle["p_va_cal"], xr_normal_adj, mu_default, var_default, var_normal=var_normal
     )
     qs = q_score(e_xr, v_xr)
     realized = xr_va["xr_realized"]
@@ -602,19 +626,22 @@ def parse_seed_spec(spec: str) -> list[int]:
     return sorted(dict.fromkeys(seeds))
 
 
-def run_repeat(seed_spec: str) -> None:
+def run_repeat(seed_spec: str, scheme: str = "6_2_2") -> None:
     """`--repeat` 경로 — K회 반복을 돌리고 요약을 출력한다."""
-    out_path = repo_root() / "outputs" / "sharpe_repeat_k50.csv"
+    out_path = repeat_output_path(scheme)
     seeds = parse_seed_spec(seed_spec)
 
     print("=" * 78)
-    print(f"본 실행 — 재분할 K={len(seeds)}회 (seed {seeds[0]}~{seeds[-1]}) "
-          "× 랭킹기준 3종 × 재투자가정 2종")
+    print(f"본 실행 — 분할체계 {scheme} · 재분할 K={len(seeds)}회 "
+          f"(seed {seeds[0]}~{seeds[-1]}) × 랭킹기준 3종 × 재투자가정 2종")
     print("=" * 78)
-    print("Test 20%는 열지 않는다 — Train+Validation 풀만 재분할한다(#18).")
+    if scheme == "7_3":
+        print("Test는 이 표본 밖(2nd Test 파일)이라 재분할해도 흔들리지 않는다 (#30).")
+    else:
+        print("Test 20%는 열지 않는다 — Train+Validation 풀만 재분할한다(#18).")
     print(f"산출(덧붙임) → {out_path.name}\n")
 
-    df = repeat_full_search(seeds, out_path)
+    df = repeat_full_search(seeds, out_path, scheme=scheme)
     if df.empty:
         print("결과가 없다.")
         return
@@ -625,7 +652,7 @@ def run_repeat(seed_spec: str) -> None:
     summary = summarize_full_repeats(df)
     print(summary.to_string(index=False, float_format=lambda v: f"{v: .5f}"))
 
-    summary_path = repo_root() / "outputs" / "sharpe_repeat_k50_summary.csv"
+    summary_path = out_path.with_name(out_path.stem + "_summary.csv")
     summary.to_csv(summary_path, index=False)
     print(f"\n요약 산출물 → {summary_path.name}")
     print("다음 단계: 승자 기준을 확정한 뒤 `final_evaluation.py`로 Test 1회.")
@@ -641,10 +668,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Sharpe threshold 탐색")
     ap.add_argument("--repeat", metavar="SEEDS", default=None,
                     help="재분할 반복 실행 (예: '0-49'). 생략하면 매니페스트 분할 1회만 돈다.")
+    ap.add_argument("--scheme", default="6_2_2", choices=["6_2_2", "7_3"],
+                    help="분할 체계 (기본 6_2_2). 7_3은 Test를 별도 파일로 둔다 — #30")
     args = ap.parse_args()
 
     if args.repeat:
-        run_repeat(args.repeat)
+        run_repeat(args.repeat, scheme=args.scheme)
         return
 
     out_dir = repo_root() / "outputs"
@@ -657,7 +686,7 @@ def main() -> None:
     print("   조기상환 보정은 정상상환분 R을 낮추므로 절대 Sharpe는 과대추정이다(#20 B팀 1순위).")
 
     print("\n[모형 학습 — 재투자 가정과 무관하므로 1회만 (#19)]")
-    bundle = build_validation_scores()
+    bundle = build_validation_scores(scheme=args.scheme)
     print(f"  fold AUC 평균 {np.mean(bundle['fold_auc']):.5f}")
 
     treasury = ReturnAssumptions()

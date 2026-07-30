@@ -90,18 +90,25 @@ HEADLINE_REINVEST = "treasury"
 # 어느 모델이 이겼는가
 # ---------------------------------------------------------------------------
 def select_best_model(
-    criterion: str, reinvest: str = HEADLINE_REINVEST, min_k: int = 50
+    criterion: str,
+    reinvest: str = HEADLINE_REINVEST,
+    min_k: int = 50,
+    scheme: str = "6_2_2",
 ) -> pd.Series:
     """K=50 중 **Validation Sharpe 최고** seed의 행을 돌려준다.
 
     `min_k`에 못 미치면 예외로 중단한다 — 반복이 덜 끝난 상태에서 "최고"를 뽑으면 아직
     돌지 않은 seed가 더 좋을 수 있고, **Test는 1회뿐이라 되돌릴 수 없다.**
+
+    `scheme`은 어느 반복 결과를 읽을지 정한다 (`repeat_output_path()`).
     """
-    path = repo_root() / "outputs" / REPEAT_CSV
+    from analysis.sharpe_optimizer import repeat_output_path
+
+    path = repeat_output_path(scheme)
     if not path.exists():
         raise FileNotFoundError(
             f"K=50 결과가 없다: {path}\n"
-            "먼저 `python src/analysis/sharpe_optimizer.py --repeat 0-49`를 돌려라."
+            f"먼저 `python src/analysis/sharpe_optimizer.py --repeat 0-49 --scheme {scheme}`를 돌려라."
         )
     key = CRITERION_KEYS[criterion]
     df = pd.read_csv(path)

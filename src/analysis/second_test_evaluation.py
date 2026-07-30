@@ -81,7 +81,7 @@ from preprocessing.preprocessor import (  # noqa: E402
     resplit_train_validation,
 )
 
-OUT_CSV = "second_test_evaluation.csv"
+OUT_CSV_STEM = "second_test_evaluation"
 HEADLINE_REINVEST = "treasury"
 
 # 2nd Test 인덱스에 더할 값. train 원본이 1,755,295행이므로 어떤 값과도 겹치지 않는다.
@@ -155,7 +155,9 @@ def load_second_test(X_ref: pd.DataFrame, verbose: bool = True) -> tuple:
 # ---------------------------------------------------------------------------
 # 승자 재현 → 2nd Test 예측
 # ---------------------------------------------------------------------------
-def rebuild_winner_for_second_test(seed: int, data: tuple, verbose: bool = True) -> dict:
+def rebuild_winner_for_second_test(
+    seed: int, data: tuple, verbose: bool = True, scheme: str = "6_2_2"
+) -> dict:
     """승자 seed의 모델을 재현하고, 2nd Test 점수 재료를 `bundle` 형태로 만든다.
 
     `scores_for_assumptions()`가 그대로 먹도록 train·2nd Test의 `outcome`을 **하나의 프레임으로
@@ -164,7 +166,7 @@ def rebuild_winner_for_second_test(seed: int, data: tuple, verbose: bool = True)
     다르게 하지 않기 위한 것이다.
     """
     X, y, meta, outcome = data
-    parts = resplit_train_validation(X, y, meta, seed=seed)
+    parts = resplit_train_validation(X, y, meta, seed=seed, scheme=scheme)
     X_tr, y_tr, _ = parts["train"]
 
     print("\n[2nd Test 로딩 — 같은 전처리 파이프라인]")
@@ -258,7 +260,11 @@ def main() -> None:
     ap.add_argument("--reinvest", default=HEADLINE_REINVEST, choices=["treasury", "cash"],
                     help="승자를 고르는 기준이 되는 재투자 가정 (기본: treasury — #18)")
     ap.add_argument("--min-k", type=int, default=50, help="이 K에 못 미치면 중단 (기본 50)")
+    ap.add_argument("--scheme", default="6_2_2", choices=["6_2_2", "7_3"],
+                    help="분할 체계 (기본 6_2_2). 7_3이 #30 확정 체계다.")
     args = ap.parse_args()
+    out_csv = (f"{OUT_CSV_STEM}.csv" if args.scheme == "6_2_2"
+               else f"{OUT_CSV_STEM}_{args.scheme}.csv")
 
     print("=" * 78)
     print("2nd Test 평가 — lending_club_2020_test_2nd.csv (train과 id 무교집합)")
@@ -267,17 +273,19 @@ def main() -> None:
     print("모델·τ*는 final_evaluation.py와 **동일**하다 — 적용 대상만 바꾼다.")
     print("⚠️ XR은 **잠정 가정**이다 — 국채 ⓒ발행시점 고정 · 수수료 0% · 조기상환 보정 0(#20).")
 
-    best = select_best_model(args.criterion, args.reinvest, min_k=args.min_k)
+    best = select_best_model(args.criterion, args.reinvest, min_k=args.min_k,
+                             scheme=args.scheme)
     print(f"\n[승자] seed {int(best['seed'])}  Validation Sharpe {best['sharpe']:.4f} "
           f"(K={int(best['K'])} 중 1위)   τ* {best['threshold']:.6f}")
 
     print("\n[train 원본 로딩]")
     data = load_pipeline_data()
 
-    bundle = rebuild_winner_for_second_test(int(best["seed"]), data)
+    bundle = rebuild_winner_for_second_test(int(best["seed"]), data, scheme=args.scheme)
     result = evaluate_on_second_test(bundle, best, args.criterion)
+    result.insert(0, "scheme", args.scheme)
 
-    out_path = repo_root() / "outputs" / OUT_CSV
+    out_path = repo_root() / "outputs" / out_csv
     result.to_csv(out_path, index=False)
 
     print("\n" + "=" * 78)
@@ -298,7 +306,7 @@ def main() -> None:
               f"(승자 seed의 Train fold AUC {h['fold_auc_mean']:.5f})")
         print(f"  유효 {int(h['n_second_usable']):,}건 / 제외 {int(h['n_second_dropped']):,}건")
 
-    print(f"\n산출물 → outputs/{OUT_CSV}")
+    print(f"\n산출물 → outputs/{out_csv}")
     print("⚠️ `oracle_tau` 행은 2nd Test를 보고 고른 값이다 — 성과로 인용하지 않는다.")
 
 
