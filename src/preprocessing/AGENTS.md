@@ -37,8 +37,17 @@
 
 두 숫자가 다르다고 어느 한쪽이 틀린 게 아니다. **제외된 1,754건은 버리지 말고 사유와 함께 감사(audit) 테이블로 보존**한다 — 나중에 "왜 건수가 줄었나"에 답할 수 있어야 한다.
 - **사전/사후(pre/post-approval) 변수 라벨은 확정됐다** (`decision_log.md` #1). 원본은 `data/processed/variable_dictionary_byGJ.xlsx`의 `is_pre_approval` 컬럼이며, 이 값을 기준으로 사후 변수를 제외한다.
+  - ⚠️ **시트를 그대로 믿으면 안 된다 — 확정 사항과 어긋나 있다.** 시트는 `grade`·`sub_grade`를
+    미라벨(NaN)로, `int_rate`·`installment`·`funded_amnt`·`funded_amnt_inv`·`issue_d`·
+    `initial_list_status`를 **사후(0)** 로 두는데, #1이 이 8개를 사전으로 재분류했고 #17 ③이
+    `grade`·`sub_grade`·`int_rate` 투입을 확정했다. **시트 값만 쓰면 LC 조건변수가 전부 빠져
+    Lean 스펙(AUC 0.68대)이 된다.**
+  - `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 이를 코드에서 보정한다 — 피처 목록은 시트를 직접
+    읽지 말고 **`loader.pre_approval_columns()` / `loader.select_feature_columns()`를 경유**한다.
+    시트가 개정되면 `verify_dictionary_overrides()`가 알려주고, 그때 오버라이드를 비울 수 있다.
+    **시트 개정은 열린 실행 항목**이다(`preprocessing_crosscheck_kgj.md` 10절).
   - 규칙 기반 재라벨링 결과와의 대조는 `label_pre_post_by_rule.py`로 재현한다(151개 중 사후 40 / 사전 111).
-- `grade`, `sub_grade`, `int_rate`, `installment`, `funded_amnt`, `funded_amnt_inv`, `issue_d`, `initial_list_status`는 대출 발행(origination) 시점에 함께 확정되는 값으로, 신규 심사 대상 데이터에도 이미 채워져 있어 **사전(pre-approval) 변수로 간주**한다 (근거: 신규 데이터 컬럼이 훈련 데이터와 동일하다는 조교님 확인, `README.md`의 "독립변수(피처) 구성" 참고). **이 변수들은 부도확률 예측 모델의 입력 피처로 투입한다** (2026-07-29 회의 확정, `decision_log.md` #17 ③). "LC 자체 등급을 그대로 베끼는 셈"이라는 우려는 남지만, 투자자는 LC 심사를 통과한 대출에 투자할지만 결정하므로 결정 시점에 관측 가능한 값이다(#1). ⚠️ 이에 따라 최종 모형의 AUC 기준은 **0.71대**이며, 기존 문서의 0.68대(조건변수를 뺀 Lean 스펙)와 섞어 인용하지 않는다.
+- `grade`, `sub_grade`, `int_rate`, `installment`, `funded_amnt`, `funded_amnt_inv`, `issue_d`, `initial_list_status`는 대출 발행(origination) 시점에 함께 확정되는 값으로, 신규 심사 대상 데이터에도 이미 채워져 있어 **사전(pre-approval) 변수로 간주**한다 (근거: 신규 데이터 컬럼이 훈련 데이터와 동일하다는 조교님 확인, `README.md`의 "독립변수(피처) 구성" 참고). **이 변수들은 부도확률 예측 모델의 입력 피처로 투입한다** (2026-07-29 회의 확정, `decision_log.md` #17 ③). "LC 자체 등급을 그대로 베끼는 셈"이라는 우려는 남지만, 투자자는 LC 심사를 통과한 대출에 투자할지만 결정하므로 결정 시점에 관측 가능한 값이다(#1). ⚠️ 기존 문서의 0.68대(조건변수를 뺀 Lean 스펙)와 섞어 인용하지 않는다. ⚠️ 문서에 남아 있는 **"0.71대"는 #16 만기필터 확정 이전 값**이다 — 확정 표본(723,563건) 재측정값은 **0.70대**이며, 같은 조건에서 필터만 빼면 0.7283이 나와 −2.1%p가 필터 효과임이 확인됐다(`outputs/reports/oof_diagnostics_kgj.md`). `decision_log.md` 정정은 팀 확인 후 한다.
   - ⚠️ **`int_rate`를 실현수익률로 그대로 쓰지 않는다.** 예전 규칙("정상상환 시 실현수익률 = `int_rate`")은 폐기됐다(#18) — 재투자 가정이 "매달 상환액을 잔존기간 매칭 국채에 재투자"로 확정되면서 정상상환분도 같은 관례로 재계산해야 한다. `int_rate`를 쓰는 것은 재투자율 12.6%를 가정하는 것과 같아 부도 쪽(국채)과 어긋난다. `int_rate`는 **피처로만** 쓴다.
 ### 누수(leakage) 방지 — 결과변수를 피처로 넣지 않는다
 
@@ -85,7 +94,79 @@
 - ⚠️ 이 결론은 **XGBoost 단일화**에 전적으로 의존한다. 로지스틱이 되살아나면 NaN을 못 받으므로
   대체값·더미·표준화가 전부 되살아난다. 현재는 #17 ①로 확정된 상태다.
 
+## 범주형 변수 — `category` dtype (**더미화하지 않는다**)
+
+결측을 NaN으로 두는 것과 같은 이유다 — XGBoost 단일화(#17 ①)로 더미가 필요 없어졌다.
+
+- 문자열 범주형은 pandas **`category` dtype**으로 두고 XGBoost에 `enable_categorical=True`로 넘긴다.
+  `pd.get_dummies()`를 쓰지 않는다 — 더미화하면 변수 수가 폭증하고, NaN을 따로 다뤄야 한다.
+- `emp_length`는 **순서 있는(ordered) category**로 만든다 (`< 1 year` … `10+ years`).
+- 문자열로 저장된 수치·날짜는 되돌린다: `int_rate`·`revol_util`은 `%` 제거 후 실수,
+  `issue_d` 등 월 컬럼은 **절대 월 서수**(`year*12 + month`)로 바꾼다.
+- ⚠️ `README.md`의 "범주형 변수는 더미화하되…"는 **로지스틱 전제의 과거 검토**다(#17 ① 이전).
+  이 절이 현행 규칙이다.
+
 > 컬럼명 표준화 규칙, 파생(비율) 변수 목록, 처리 로그 경로는 아직 미확정 — 추후 보충.
+
+## 분할 공유 — **매니페스트를 쓴다. seed만 믿지 않는다**
+
+원본 CSV는 git에 없으므로(1.2GB) 팀원이 각자 받는다. 그런데 **각자 돌린 분할이 같다는 보장이
+없다.** `train_test_split`은 행의 **위치(position)** 를 셔플하므로 원본의 **행 순서가 다르면
+완전히 다른 분할**이 나오고, `filter_analysis_sample()`의 723,563건 검증은 **건수만 보므로
+그대로 통과한다** — 어긋난 것을 아무도 모른다.
+
+행 순서가 달라지는 경로는 실제로 있다: 원본을 엑셀·Numbers로 열었다 저장(그래서 금지한다),
+다른 시점에 받은 파일, 정렬해서 저장한 사본. 그리고 팀원이 각자 다른 seed를 쓰면 **한 사람의
+Test 건이 다른 사람의 Train에 들어가** 개인 기준으로는 규칙을 지켰는데 팀 전체로는 **Test가
+오염된다.**
+
+**해법: `id → split` 매니페스트를 git으로 공유한다.**
+
+| 파일 | 내용 |
+| --- | --- |
+| `data/processed/split_manifest_6_2_2_seed42.csv.gz` | `id`·`split`·`target` (723,563행, **2.35MB gzip** — 커밋 가능) |
+| `data/processed/split_manifest_6_2_2_seed42.source.md` | 출처 카드 (seed·비율·건수·부도율·체크섬) |
+
+- **생성**: `python src/preprocessing/export_split_manifest.py` (1회. 이미 만들어져 있다)
+- **대조**: `python src/preprocessing/export_split_manifest.py --verify`
+  → 자기 원본으로 만든 분할이 매니페스트와 같은지 **SHA-256 체크섬**으로 확인한다.
+  현행 체크섬 `cffd9896…4d5c`. 불일치하면 **매니페스트를 새로 만들지 말고 원인을 먼저 찾는다** —
+  이미 그 분할로 낸 산출물이 전부 무효가 된다.
+- **사용**: `split_6_2_2()`를 직접 쓰지 말고 **`split_from_manifest(X, y, meta)`** 를 쓴다.
+  `id`로 매칭하므로 행 순서·pandas·sklearn 버전과 무관하다.
+- ⚠️ `split_from_manifest()`는 각 split을 **`id` 오름차순으로 정렬해** 돌려준다. 분할 집합이
+  같아도 **행 순서가 다르면 `StratifiedKFold`의 fold 배정이 달라지기** 때문이다(그것도 위치를
+  셔플한다). 정렬하면 OOF fold까지 `(id 집합, seed)`만으로 결정된다.
+
+### ⚠️ Test 격리 — 코드로 잠갔다
+
+- **`split_from_manifest()`는 Test를 기본적으로 반환하지 않는다.** `unlock_test=True`를 명시해야
+  나오고, 그때 경고를 출력한다. 실수로 `parts["test"]`를 집는 일을 막는 장치다.
+- Test는 모형·threshold가 **전부 확정된 뒤 단 1회** 적용한다(`src/analysis/AGENTS.md`).
+  랭킹 기준 3종 비교처럼 **여러 안 중 하나를 고르는 작업에 Test를 쓰면 규칙 위반**이다.
+- **K=50 반복(#18)에는 `resplit_train_validation()`을 쓴다.** `split_6_2_2(seed=k)`를 반복에
+  쓰면 **Test 구성까지 매번 바뀌어** "Test set은 그대로 고정해두고"(`README.md`)가 깨진다.
+  이 함수는 매니페스트의 Train+Validation 풀만 75/25로 다시 가른다.
+
+## 구현 — 어느 함수를 부르는가 (2026-07-30, 커밋 `7e1cb9d`)
+
+위 규칙은 이미 코드로 구현돼 있다. **다시 짜지 말고 아래를 호출한다.**
+
+| 모듈 | 담당 | 주요 함수 |
+| --- | --- | --- |
+| `loader.py` | 원본 로딩 · 표본 필터 · 피처 컬럼 선택 | `load_raw_loans()`, `filter_analysis_sample()`(**723,563건 검증 내장**), `normalize_loan_status()`, `parse_term_months()`, `make_target()`, `pre_approval_columns()`, `select_feature_columns()`, `validate_schema()` |
+| `preprocessor.py` | dtype 정리 · 피처 테이블 · 분할 | `coerce_dtypes()`, `build_feature_table()`, **`split_from_manifest()`**(권장), `resplit_train_validation()`(K=50 반복용), `load_split_manifest()`, `split_6_2_2()`(매니페스트 **생성 전용**) |
+| `export_split_manifest.py` | 분할 매니페스트 생성·체크섬 대조 | `build_manifest()`, `split_checksum()`, `main()` (`--verify`) |
+
+> ⚠️ **`split_6_2_2()`를 분석 코드에서 직접 부르지 않는다.** 이 함수는 매니페스트를 **만들 때만**
+> 쓴다. 분석은 `split_from_manifest()`를 경유해야 팀원 간 분할이 일치하고 Test가 잠긴다.
+
+- `filter_analysis_sample(df, verify=True)`는 결과가 **723,563건이 아니면 예외로 중단**한다(#16).
+  건수가 바뀌었다면 필터를 고치기 전에 **왜 바뀌었는지부터** 확인한다.
+- `META_COLUMNS`(`id`·`issue_d`·`term`·`funded_amnt`·`int_rate`)는 피처가 아니라 **결합·현금흐름
+  계산용**으로 따로 들고 간다. `int_rate`만 예외적으로 피처이기도 하다(#17 ③).
+- 두 모듈은 **파일을 쓰지 않는다** — 결과는 in-memory로 `src/analysis/`에 넘긴다.
+  중간 산출물을 저장하게 되면 위 「결과 파일 저장 규칙」의 `*_full.csv` / `*_sample.csv` 분리를 따른다.
 
 ## 실행
 - 실행 환경은 저장소 루트 `requirements.txt` 참고. 시스템 python에는 scikit-learn·xgboost가 없다.

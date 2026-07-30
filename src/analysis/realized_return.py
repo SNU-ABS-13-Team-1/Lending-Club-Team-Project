@@ -1,0 +1,397 @@
+"""실현수익률 · 초과수익률(XR) — 구조 A′의 **잠정(provisional)** 구현.
+
+`decision_log.md` #20이 확정한 구조를 계산 가능한 형태로 옮긴 것이다.
+
+```
+E[XR_i] = (1 − p̂_i) · XR_정상,i        +  p̂_i · mu_부도,d(i)
+                  ↑ 건별 계약 현금흐름          ↑ 그룹 평균 (PD 분위 × term)
+```
+
+## ⚠️ 잠정값으로 고정한 미확정 3건 (#20)
+
+| 항목 | 선택지 | 여기서 쓴 값 |
+| --- | --- | --- |
+| 국채 금리 기준 | ⓐ실제경로 / ⓑ상수 / **ⓒ발행시점 고정** | **ⓒ** (#18·#20 권고) |
+| 투자자 서비스수수료 | ~1% | **0%** |
+| 조기상환 보정 `Δ̄_조기상환,d` | 미확정 | **0** (= 보정 없음) |
+
+**조기상환 보정이 0이라는 것은 정상상환분 `R`이 과대추정된다는 뜻이다.** 국채 재투자 가정
+아래서 조기상환은 `R`을 낮춘다(12% 대출을 12개월에 회수하면 남은 24개월을 약 2% 국채로
+굴려야 한다). 또한 보정이 없으면 **`var_정상 = 0`** 이 되어 `Var[XR]`의 분모가 부도 항만
+반영한다 — 정상상환분의 분산은 원래 `실현 R − 계약 R`의 산포에서 나온다(#20).
+
+→ B팀이 확정하면 `PrematureRepaymentAdjustment`만 갈아 끼우면 된다.
+   **모형 재학습은 불필요하고 칸별 통계표와 threshold만 재계산**하면 된다(#19·#20).
+
+## 손실값을 상수로 박지 않는다
+
+`src/analysis/AGENTS.md`의 구현 조건이다. 부도 손실은 하드코딩된 −100%나 −45%가 아니라
+**데이터에서 칸별로 추정한 `mu_부도,d`** 이며, 재투자 가정·수수료·보정항은 전부
+`ReturnAssumptions`로 주입받는다.
+
+## ⚠️ 여기 쓰는 컬럼은 전부 사후(post-approval)다
+
+`total_pymnt`·`recoveries`·`last_pymnt_d` 등은 **결과변수 쪽**이라 피처 테이블에 넣으면
+누수다(`src/preprocessing/AGENTS.md`). 이 모듈의 산출물은 threshold·Sharpe 단계에서
+`id`로 결합해 쓴다.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+try:
+    from utils.config import load_config
+except ModuleNotFoundError:  # pragma: no cover
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.config import load_config
+
+
+TREASURY_FILENAME = "us_treasury_GS3_GS5_monthly_2007-06_to_2020-09.csv"
+
+# 부도 회수액 수령 시점 — 최종납입 K개월 뒤 6개월.
+# ⚠️ 이 규칙은 아직 어느 문서에도 근거가 기록돼 있지 않다(#17 작업 10, B팀).
+RECOVERY_LAG_MONTHS = 6
+
+
+@dataclass(frozen=True)
+class ReturnAssumptions:
+    """수익률 계산 가정 — **전부 주입받는다.** 상수로 박지 않는다(`src/analysis/AGENTS.md`)."""
+
+    reinvest: str = "treasury"
+    """`"treasury"`: 잔존기간 매칭 국채 재투자(#18 확정) / `"cash"`: 0% 재투자(민감도용)."""
+
+    treasury_basis: str = "issue_fixed"
+    """ⓒ 발행시점 고정(권고·잠정). ⓐ실제경로·ⓑ상수는 아직 미구현이다."""
+
+    servicing_fee_annual: float = 0.0
+    """투자자 서비스수수료 연율. 잠정 0% (#20 미확정)."""
+
+    prepayment_adjustment: float = 0.0
+    """칸별 `Δ̄_조기상환` 보정항. 잠정 0 — **정상상환분 R이 과대추정된다**(#20 1순위 미결)."""
+
+    def label(self) -> str:
+        """산출물 파일명·컬럼에 남길 가정 표기. 재투자 스위치는 통계표까지 바꾼다(#18)."""
+        fee = f"fee{self.servicing_fee_annual * 100:g}pct"
+        return f"provisional_{self.reinvest}_{self.treasury_basis}_{fee}"
+
+
+# ---------------------------------------------------------------------------
+# 국채 곡선
+# ---------------------------------------------------------------------------
+def load_treasury() -> pd.DataFrame:
+    """월별 국채수익률(연율 %). 인덱스는 절대 월 서수(`year*12 + month`)다."""
+    path = load_config().paths.data_processed / TREASURY_FILENAME
+    if not path.exists():
+        raise FileNotFoundError(f"국채 데이터가 없습니다: {path}")
+    t = pd.read_csv(path, parse_dates=["observation_date"])
+    t["month_ord"] = t["observation_date"].dt.year * 12 + t["observation_date"].dt.month
+    return t.set_index("month_ord")[["GS3", "GS5"]].sort_index()
+
+
+def issue_risk_free_rate(
+    issue_month_ord: pd.Series, term_months: pd.Series, treasury: pd.DataFrame | None = None
+) -> pd.Series:
+    """발행시점 × 만기매칭 무위험수익률 `rf` (연율, 소수).
+
+    `decision_log.md` #18 확정 — 36개월은 `GS3`, 60개월은 `GS5`. 고정 상수가 아니므로
+    `config.yaml`의 `risk_free_rate.value`는 읽지 않는다(계속 `null`이다).
+    """
+    t = treasury if treasury is not None else load_treasury()
+    series_by_term = load_config().risk_free_rate.series or {36: "GS3", 60: "GS5"}
+
+    out = pd.Series(np.nan, index=issue_month_ord.index, dtype="float64")
+    for term, col in series_by_term.items():
+        mask = term_months == term
+        if not mask.any():
+            continue
+        out.loc[mask] = t[col].reindex(issue_month_ord.loc[mask]).to_numpy()
+    return out / 100.0
+
+
+def _monthly_rate(annual_rate: pd.Series | np.ndarray) -> np.ndarray:
+    """연율 → 월율. `(1+r)^(1/12) − 1`."""
+    return np.power(1.0 + np.asarray(annual_rate, dtype="float64"), 1.0 / 12.0) - 1.0
+
+
+# ---------------------------------------------------------------------------
+# 정상상환 — 건별 계약 현금흐름
+# ---------------------------------------------------------------------------
+def contract_return(
+    installment: pd.Series,
+    funded_amnt: pd.Series,
+    term_months: pd.Series,
+    reinvest_rate: pd.Series,
+    assumptions: ReturnAssumptions = ReturnAssumptions(),
+) -> pd.Series:
+    """정상상환 건의 **계약** 실현수익률 `R_계약` (연율).
+
+    계약대로 만기까지 매달 `installment`를 받아 잔존기간 매칭 국채에 재투자한다고 본다.
+    매달 같은 금액이므로 미래가치는 연금 종가 공식으로 닫힌 형태가 된다.
+
+        W = installment · Σ_{m=1..T} (1+i)^(T−m) = installment · ((1+i)^T − 1) / i
+        R = (W / P)^(12/T) − 1                                   ... #18
+
+    `i`는 월 재투자율이다. `reinvest="cash"`(0% 재투자)면 `W = installment · T`가 되어
+    #18이 "이중 부과"라고 지적한 옛 관례가 그대로 재현된다 — 민감도 병기용이다.
+
+    예) `P=10,000`, `installment=332.14`(36개월 12%), 재투자 2%:
+        `i=0.00165`, `W = 332.14 × 37.06 = 12,309` → `R = (1.2309)^(1/3) − 1 = **7.17%**`.
+        0% 재투자면 `W = 11,957` → `R = **6.14%**`. 차이 **+103bp**가 재투자 가정 효과다
+        (전수 실측 평균 +107.5bp와 같은 크기 — `realized_return_sensitivity.py`).
+
+    **정합성 검증**: 대출금리 = 국채금리인 *무위험 등가 대출*을 넣으면 `XR = R − rf`가
+    **정확히 0.000bp**로 나온다. #18이 국채 재투자를 택한 근거가 이것이다 — 0% 재투자에서는
+    같은 대출이 −0.96%p로 나와 무위험 자산에 벌점이 붙는다.
+    """
+    P = funded_amnt.to_numpy(dtype="float64")
+    A = installment.to_numpy(dtype="float64")
+    T = term_months.to_numpy(dtype="float64")
+
+    if assumptions.reinvest == "cash":
+        W = A * T
+    elif assumptions.reinvest == "treasury":
+        i = _monthly_rate(reinvest_rate)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            factor = np.where(i == 0, T, (np.power(1.0 + i, T) - 1.0) / i)
+        W = A * factor
+    else:
+        raise ValueError(f"알 수 없는 reinvest 가정: {assumptions.reinvest!r}")
+
+    if assumptions.servicing_fee_annual:
+        W = W * np.power(1.0 - assumptions.servicing_fee_annual, T / 12.0)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        R = np.power(W / P, 12.0 / T) - 1.0
+    R = np.where(P > 0, R, np.nan)
+    return pd.Series(R, index=funded_amnt.index, name="R_contract") + assumptions.prepayment_adjustment
+
+
+# ---------------------------------------------------------------------------
+# 부도 — 건별 실현 현금흐름
+# ---------------------------------------------------------------------------
+def realized_return_defaulted(
+    df: pd.DataFrame,
+    reinvest_rate: pd.Series,
+    assumptions: ReturnAssumptions = ReturnAssumptions(),
+) -> pd.Series:
+    """부도(`Charged Off`) 건의 **실현** 수익률 `R` (연율).
+
+    LC 데이터에 월별 납입 내역이 없으므로, 총 수령액을 다음처럼 배분한다
+    (`realized_return_sensitivity.py`가 이 가정의 민감도를 잰다 — 대안 배분과의 차이가
+    정상/부도 모두 50bp 이내였다).
+
+    - 마지막 납입월 `K`에 `last_pymnt_amnt`를 받고,
+    - 나머지 `C_regular − last_pymnt_amnt`를 `1..K−1`에 균등 배분하고,
+    - 순회수액 `C_recovery`는 `K + 6`개월에 받는다.
+
+    각 수령액을 만기 `T`까지 국채로 굴려 `W`를 만들고 `R = (W/P)^(12/T) − 1`을 푼다.
+    `K + 6 > T`이면 지수가 음수가 되어 **역할인**되는데, 만기 후 수령분이라 맞는 처리다.
+
+    필요 컬럼: `funded_amnt`, `term`, `K`, `total_pymnt`, `recoveries`,
+    `collection_recovery_fee`, `last_pymnt_amnt`.
+    """
+    P = df["funded_amnt"].to_numpy(dtype="float64")
+    T = df["term"].to_numpy(dtype="float64")
+    K = df["K"].to_numpy(dtype="float64")
+    L = df["last_pymnt_amnt"].fillna(0).to_numpy(dtype="float64")
+    C_reg = (df["total_pymnt"].fillna(0) - df["recoveries"].fillna(0)).to_numpy(dtype="float64")
+    C_rec = (
+        df["recoveries"].fillna(0) - df["collection_recovery_fee"].fillna(0)
+    ).to_numpy(dtype="float64")
+
+    if assumptions.reinvest == "cash":
+        W = C_reg + C_rec
+    elif assumptions.reinvest == "treasury":
+        i = _monthly_rate(reinvest_rate)
+        one = 1.0 + i
+
+        # K>=2: 앞선 K-1개월에 균등배분 A, 마지막 달에 L
+        n_pre = np.maximum(K - 1.0, 0.0)
+        A = np.where(n_pre > 0, (C_reg - L) / np.where(n_pre > 0, n_pre, 1.0), 0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            # Σ_{t=1}^{K-1} (1+i)^(T-t) = (1+i)^(T-K+1) · ((1+i)^(K-1) − 1)/i
+            geo = np.where(i == 0, n_pre, (np.power(one, n_pre) - 1.0) / i)
+        W_pre = A * np.power(one, T - K + 1.0) * geo
+        W_last = L * np.power(one, T - K)
+
+        # K<=1: 전액을 K월에 받은 것으로 본다 (배분할 앞선 달이 없다)
+        lump = C_reg * np.power(one, T - np.maximum(K, 0.0))
+        W = np.where(K >= 2, W_pre + W_last, lump)
+
+        W = W + C_rec * np.power(one, T - K - RECOVERY_LAG_MONTHS)
+    else:
+        raise ValueError(f"알 수 없는 reinvest 가정: {assumptions.reinvest!r}")
+
+    if assumptions.servicing_fee_annual:
+        W = W * np.power(1.0 - assumptions.servicing_fee_annual, T / 12.0)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(P > 0, W / P, np.nan)
+        R = np.where(ratio >= 0, np.power(np.abs(ratio), 12.0 / T) - 1.0, np.nan)
+    return pd.Series(R, index=df.index, name="R_realized")
+
+
+# ---------------------------------------------------------------------------
+# 칸별 통계표 · E[XR] · Var[XR]
+# ---------------------------------------------------------------------------
+def default_cell_stats(
+    xr_defaulted: pd.Series,
+    pd_quantile: pd.Series,
+    term_months: pd.Series,
+    min_count_mean: int = 100,
+    min_count_var: int = 300,
+) -> pd.DataFrame:
+    """칸별(`PD 분위 × term`) 부도 초과수익 통계표 — `mu_부도,d`·`var_부도,d`.
+
+    `var_부도`는 표본이 작은 칸에서 불안정하다(상대오차 ≈ `√(2/(n−1))` — n=300에서 8.2%,
+    n=50에서 20.2%). 그래서 **분산에는 평균보다 엄한 최소 표본수를 요구하고, 미달 칸은
+    pooled 분산으로 축소추정**한다(`src/analysis/AGENTS.md`). 분산이 과소추정된 칸이
+    체계적으로 승인되는 선택편향을 막기 위한 것이다.
+    """
+    frame = pd.DataFrame(
+        {"xr": xr_defaulted, "q": pd_quantile, "term": term_months}
+    ).dropna(subset=["xr"])
+
+    g = frame.groupby(["term", "q"], observed=True)["xr"]
+    stats = pd.DataFrame({"n": g.size(), "mu": g.mean(), "var": g.var(ddof=1)})
+
+    pooled_var = frame["xr"].var(ddof=1)
+    stats["var_raw"] = stats["var"]
+    stats["shrunk"] = stats["n"] < min_count_var
+    stats.loc[stats["shrunk"], "var"] = pooled_var
+    stats["mu_unreliable"] = stats["n"] < min_count_mean
+    stats["pooled_var"] = pooled_var
+    return stats
+
+
+def expected_excess_return(
+    p_hat: pd.Series,
+    xr_normal: pd.Series,
+    mu_default: pd.Series,
+) -> pd.Series:
+    """`E[XR_i] = (1 − p̂)·XR_정상,i + p̂·mu_부도,d(i)` (#20 구조 A′)."""
+    return (1.0 - p_hat) * xr_normal + p_hat * mu_default
+
+
+def variance_excess_return(
+    p_hat: pd.Series,
+    xr_normal: pd.Series,
+    mu_default: pd.Series,
+    var_default: pd.Series,
+    var_normal: pd.Series | float = 0.0,
+) -> pd.Series:
+    """총분산의 법칙 — **교차항을 빠뜨리지 않는다.**
+
+        Var[XR] = (1−p)·var_정상 + p·var_부도 + p(1−p)·(mu_정상 − mu_부도)²
+
+    마지막 항이 지배적이다. 예시(`p=0.10`, `mu_정상=+5%`/sd 3%, `mu_부도=−40%`/sd 20%)에서
+    교차항이 총분산의 **79%** 를 차지한다. 빠뜨리면 sd가 15.2% → 6.9%로 축소되고
+    `p(1−p)`에 비례해 편향이 걸려 **랭킹 순서가 바뀐다** (#20).
+
+    ⚠️ 잠정 구현에서 `var_정상 = 0`이다 — 조기상환 보정이 미확정이라 계약 현금흐름만
+    쓰기 때문이다. 확정되면 칸별 `실현 R − 계약 R`의 분산을 넣는다.
+    """
+    gap = xr_normal - mu_default
+    return (1.0 - p_hat) * var_normal + p_hat * var_default + p_hat * (1.0 - p_hat) * gap**2
+
+
+def q_score(expected_xr: pd.Series, variance_xr: pd.Series) -> pd.Series:
+    """`q = E[XR] / √Var[XR]` — 승인선 랭킹 기준 후보 중 하나(#5·#20, **미확정**).
+
+    ⚠️ 개별 대출 `q` 최대화는 포트폴리오 Sharpe 최대화와 같은 문제가 아니다.
+    어느 기준을 쓰든 threshold는 **Validation 실현 XR로 계산한 실제 Sharpe** 그리드서치로
+    정한다(`src/analysis/AGENTS.md`).
+    """
+    sd = np.sqrt(variance_xr.clip(lower=0))
+    return (expected_xr / sd.replace(0, np.nan)).rename("q_score")
+
+
+def build_excess_returns(
+    outcome: pd.DataFrame, assumptions: ReturnAssumptions = ReturnAssumptions()
+) -> pd.DataFrame:
+    """건별 `rf` · `XR_정상`(계약) · `XR_부도`(실현) · `XR_실현`.
+
+    `XR_정상`은 **부도 건에도 정의된다** — "계약대로 갚았다면 얼마였을까"라서 실현 여부와
+    무관하게 계산되며, `E[XR] = (1−p̂)·XR_정상 + p̂·mu_부도`의 첫 항이 바로 그 값이다.
+
+    `xr_realized`는 그와 달리 **실제로 벌어진 결과**다 — 부도 건은 실현 현금흐름,
+    정상 건은 계약 현금흐름. Sharpe는 기대값이 아니라 **이 값**으로 계산한다
+    (`src/analysis/AGENTS.md`: "점수의 이론값이 아니라 Validation 실현 XR로").
+
+    ⚠️ 조기상환 보정이 잠정 0이라 정상상환 건의 `xr_realized`는 **과대추정**이다(#20 1순위).
+    """
+    rf = issue_risk_free_rate(outcome["issue_month_ord"], outcome["term"])
+
+    r_contract = contract_return(
+        installment=outcome["installment"],
+        funded_amnt=outcome["funded_amnt"],
+        term_months=outcome["term"],
+        reinvest_rate=rf,
+        assumptions=assumptions,
+    )
+    r_default = realized_return_defaulted(outcome, reinvest_rate=rf, assumptions=assumptions)
+
+    xr_normal = r_contract - rf
+    xr_default = (r_default - rf).where(outcome["is_default"] == 1)
+
+    return pd.DataFrame(
+        {
+            "rf": rf,
+            "xr_normal": xr_normal,
+            "xr_default": xr_default,
+            "xr_realized": xr_default.where(outcome["is_default"] == 1, xr_normal),
+            "term": outcome["term"],
+            "int_rate": outcome["int_rate"],
+            "is_default": outcome["is_default"],
+        }
+    )
+
+
+def build_return_inputs() -> pd.DataFrame:
+    """수익률 계산에 필요한 **사후 컬럼**을 분석 표본(723,563건)에 맞춰 로드한다.
+
+    반환 프레임은 피처 테이블과 **같은 인덱스**를 갖는다 — `id`로 조인하지 않아도
+    `loc`으로 정렬이 맞는다. `K`는 발행 → 최종납입 개월 수다.
+
+    ⚠️ 이 프레임을 모델 입력에 섞지 않는다(`src/preprocessing/AGENTS.md` 누수 방지).
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from preprocessing.loader import filter_analysis_sample, load_raw_loans
+
+    cols = [
+        "id", "loan_status", "term", "issue_d", "funded_amnt", "installment", "int_rate",
+        "total_pymnt", "recoveries", "collection_recovery_fee",
+        "last_pymnt_amnt", "last_pymnt_d",
+    ]
+    raw = load_raw_loans(usecols=cols)
+    s = filter_analysis_sample(raw)
+
+    s["term"] = s["term"].astype(str).str.extract(r"(\d+)")[0].astype(float)
+    s["int_rate"] = pd.to_numeric(
+        s["int_rate"].astype(str).str.replace("%", "", regex=False).str.strip(), errors="coerce"
+    )
+    issue = pd.to_datetime(s["issue_d"], format="%b-%Y", errors="coerce")
+    last = pd.to_datetime(s["last_pymnt_d"], format="%b-%Y", errors="coerce")
+
+    s["issue_month_ord"] = issue.dt.year * 12 + issue.dt.month
+    s["K"] = ((last.dt.year * 12 + last.dt.month) - s["issue_month_ord"]).clip(lower=0)
+    s["is_default"] = (s["loan_status"] == "Charged Off").astype("int8")
+    return s
+
+
+def cash_reinvestment(assumptions: ReturnAssumptions) -> ReturnAssumptions:
+    """민감도용 0% 재투자 가정 (#18 병기 확정).
+
+    ⚠️ 스위치 하나로 끝나지 않는다 — `mu`·`var`가 `XR`에서 산출되므로 **칸별 통계표까지
+    다시 만든다.** 산출물 파일명·컬럼에 `label()`을 남겨 어느 가정인지 추적한다.
+    """
+    return replace(assumptions, reinvest="cash")

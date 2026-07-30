@@ -8,10 +8,15 @@
 # 확인: python src/utils/config.py 를 실행하면 해석된 값이 출력된다.
 #
 # 적용 범위: 모형 학습·threshold 결정 등 **본 파이프라인** 코드가 대상이다.
-#   src/analysis/의 탐색·검증용 비교 스크립트(preprocessing_validation.py,
-#   missing_scheme_comparison.py, term_split_comparison.py, t2_contribution_reassessment.py)는
-#   6:2:2가 아닌 자체 2분할과 자체 seed 루프를 쓴다 — 처리 방식 간 AUC 상대 비교가 목적이라
-#   의도된 차이이며, 이 설정에 맞추지 않는다.
+#   (loader.py, preprocessor.py, model.py, realized_return.py, oof_diagnostics.py, sharpe_optimizer.py)
+#
+#   반면 src/analysis/의 탐색·검증용 스크립트는 이 설정을 따르지 않는다 — 의도된 차이다.
+#   ① 처리 방식 간 AUC 상대 비교(자체 2분할 + 자체 seed 루프):
+#      preprocessing_validation.py, missing_scheme_comparison.py, term_split_comparison.py,
+#      t2_contribution_reassessment.py, macro_indicator_screening.py, auc_sample_filter_comparison.py
+#   ② 실현수익률 검증(모형 학습 없음, pandas/numpy만 — 분할 자체가 없다):
+#      realized_return_spec_check.py, realized_return_sensitivity.py
+#   자세한 구분은 루트 AGENTS.md의 코드 색인 ②/③ 참고.
 
 paths:
   data_raw: data/raw
@@ -39,5 +44,12 @@ risk_free_rate:
 random_seed:
   # 기본 실행/디버깅용 단일 seed. src/analysis/AGENTS.md의 "30-seed 안정성 검증"(0~29 반복)과는
   # 목적이 다른 별개 설정이므로 혼동하지 않는다.
-  default: 42
+  #
+  # ⚠️ 이 값은 **분할 매니페스트 파일명**도 결정한다
+  #   (`data/processed/split_manifest_6_2_2_seed{default}.csv.gz`, `load_split_manifest()`).
+  #   바꾸면 파이프라인이 다른 분할을 쓴다 — 산출물을 전부 다시 만들어야 한다.
+  #
+  # 2026-07-30: 42 → 20260730 으로 교체. 팀 공유용 데이터셋을 내보내면서 Test 20%를
+  #   새로 랜덤분할했다. seed 42 매니페스트는 그대로 남아 있으나 더 이상 쓰지 않는다.
+  default: 20260730
   stability_check_range: [0, 29]
