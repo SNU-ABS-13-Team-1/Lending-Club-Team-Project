@@ -173,6 +173,7 @@
 | **초과수익 선별 개정안** (이슈 #23 — **등가중 헤드라인+금액가중 병기·재추출 기각**, decision #23) | `excess_return_sharpe_selection_methodology.md` |
 | **#23 개정안 교차검토** (일치 6·채택권고 3·팀결정 3 — **회의 처리 완료**, decision #22~#23) | `methodology_23_review_kgj.md` |
 | 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
+| **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
 
 > 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다(decision #22 ③·#23) — 안건 A 부분 채택 ·
 > B 등가중 헤드라인+금액가중 병기 · C(Test 재추출) 기각. **채택된 항목만 구현 근거로 쓴다.**
