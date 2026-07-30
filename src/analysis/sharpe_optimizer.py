@@ -57,7 +57,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
@@ -247,12 +247,42 @@ def compare_ranking_criteria(
     return pd.DataFrame(rows)
 
 
+def append_row_csv(path: Path, row: dict) -> None:
+    """행 하나를 CSV에 즉시 덧붙인다. 파일이 없으면 헤더를 쓴다.
+
+    K=50 반복은 seed마다 5-fold OOF + 최종 모델(=6회 학습)이라 전체가 수 시간이다.
+    **끝까지 돌려야 결과가 나오는 구조면 중간에 끊기면 전부 날아간다** — 그래서 반복마다
+    디스크에 남긴다. `completed_keys()`와 짝을 이뤄 재시작을 가능하게 한다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
+def completed_keys(path: Path, key_cols: tuple[str, ...]) -> set[tuple]:
+    """이미 계산된 조합의 키 집합. 없으면 빈 집합 — 중단된 실행을 이어서 돌릴 때 쓴다."""
+    if not path.exists():
+        return set()
+    done = pd.read_csv(path)
+    if not set(key_cols) <= set(done.columns):
+        raise ValueError(f"{path.name}에 키 컬럼 {key_cols}이 없다 — 파일을 지우고 다시 시작하라.")
+    return set(map(tuple, done[list(key_cols)].astype(str).to_numpy()))
+
+
 def repeat_threshold_search(
     score_fn: Callable[[int], tuple[pd.Series, pd.Series, bool]],
     n_repeats: int = 50,
     verbose: bool = True,
+    seeds: Iterable[int] | None = None,
+    append_to: Path | None = None,
 ) -> pd.DataFrame:
     """랜덤 6:2:2 분할을 **K=50회** 반복해 `τ*`의 분포(평균·표준편차)를 본다 (#18).
+
+    `seeds`를 주면 `range(n_repeats)` 대신 그 목록을 쓴다 — **구간을 나눠 여러 번에 걸쳐
+    돌릴 수 있다.** 각 반복이 seed 하나로 자족적이라(앞 결과를 뒤에서 쓰지 않는다) 어떤
+    순서로 쪼개 돌려도 **seed 집합이 같으면 결과가 같다.** 단 구간이 겹치면 같은 분할이
+    중복 집계되고, 빠지면 K가 줄어든다 — 합집합이 의도한 K와 같은지 확인하라.
+
+    `append_to`를 주면 반복마다 그 CSV에 덧붙이고, **이미 있는 seed는 건너뛴다**(재시작).
 
     Validation 표본 하나로 잰 Sharpe는 "진짜 성과"가 아니라 표본에 따라 흔들리는 추정치다 —
     대출 수익률이 부도 여부(베르누이)로 결정되므로 누가 Validation에 뽑혔는지에 따라 평균·
@@ -266,15 +296,28 @@ def repeat_threshold_search(
     ⚠️ **비용이 크다** — seed마다 5-fold OOF + 최종 모델이라 K=50이면 300회 학습이다.
     칸별 통계표를 seed마다 다시 만들지 seed 1개로 고정할지는 아직 미확정이다(#20 구현경로 2).
     """
+    todo = list(range(n_repeats)) if seeds is None else list(seeds)
+    done = completed_keys(append_to, ("seed",)) if append_to else set()
+
     rows = []
-    for seed in range(n_repeats):
+    for seed in todo:
+        if (str(seed),) in done:
+            if verbose:
+                print(f"  seed {seed:>3}  건너뜀 (이미 계산됨)")
+            continue
         score, xr, lower = score_fn(seed)
         res = find_optimal_threshold(score, xr, lower)
-        rows.append({"seed": seed, **res})
+        row = {"seed": seed, **res}
+        rows.append(row)
+        if append_to:
+            append_row_csv(append_to, row)
         if verbose:
             print(f"  seed {seed:>3}  τ*={res['threshold']:.6f}  "
                   f"승인율 {res['approval_rate']:.3%}  "
-                  f"Sharpe {res['sharpe']:.4f}  Δ {res['delta_sharpe']:+.4f}")
+                  f"Sharpe {res['sharpe']:.4f}  Δ {res['delta_sharpe']:+.4f}", flush=True)
+
+    if append_to and append_to.exists():
+        return pd.read_csv(append_to)   # 이전 구간까지 합친 전체를 돌려준다
     return pd.DataFrame(rows)
 
 
@@ -357,6 +400,17 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
 
     ⚠️ 칸별 통계표(`mu_부도`·`var_부도`)는 **Train에서만** 만들고 Validation에 적용한다.
     Validation 결과를 보고 만들면 누수다. 분위 경계도 재분위하지 않는다(#20).
+
+    ## K=50 반복에서 통계표를 seed마다 다시 만드는가 — **다시 만든다** (잠정)
+
+    #20 구현경로 2가 남긴 미결이었다. 이 함수는 `bundle["train_index"]`에서 통계표를
+    산출하므로, `build_validation_scores(seed=k)`가 `resplit_train_validation()`으로 Train을
+    새로 뽑으면 **통계표도 자동으로 새 Train 기준이 된다.** 이 동작을 잠정 확정으로 둔다.
+
+    근거: 통계표는 "Train에서만 만든다"는 누수 방지 규칙의 산물이다. seed마다 Train이 바뀌는데
+    통계표를 seed 하나로 고정하면, 그 고정된 Train에 **다른 seed의 Validation 행이 섞여 있어**
+    누수가 된다. 계산이 더 들지만(통계표는 `groupby` 하나라 학습 대비 무시할 수준) 규칙과
+    정합적인 쪽을 택한다. → **팀 확정 시 이 문단을 근거로 올린다.**
     """
     import sys
 
