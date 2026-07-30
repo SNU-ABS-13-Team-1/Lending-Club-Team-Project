@@ -147,8 +147,17 @@
 | --- | --- | --- |
 | `model.py` | XGBoost PD 모형 · K-fold OOF · **isotonic 보정** · PD 분위 경계 | `train_model()`, `compute_oof()`, `fit_calibrator()`, `apply_calibrator()`, `calibration_metrics()`, `calibration_table()`, `calibration_noise_floor()`, `make_quantile_edges()`, `assign_pd_quantile()`, `quantile_edges_by_term()`, `assign_quantile_by_term()` |
 | `realized_return.py` | 구조 A′ 실현수익률 · `E[XR]` · `Var[XR]` · `q_score` | `contract_return()`(정상상환 건별), `realized_return_defaulted()`, `build_excess_returns()`(`xr_normal`·`xr_default`·**`xr_realized`**), `default_cell_stats()`, `expected_excess_return()`, `variance_excess_return()`, `q_score()` |
-| `oof_diagnostics.py` | 설계 선택 실측 검증 C-1/C-2/C-3/**C-4** | `main()` — 산출물 5종은 루트 `AGENTS.md` 코드 색인 ③ 참고 |
+| `oof_diagnostics.py` | 설계 선택 실측 검증 C-1/C-2/C-3/**C-4** | `main()` — 산출물 5종은 바로 아래 목록 참고 |
 | `sharpe_optimizer.py` | threshold 탐색 · 랭킹 기준 비교 | `sharpe_ratio()`, `sharpe_curve()`(누적합으로 **모든 컷** 평가), `find_optimal_threshold()`, `approve_all_sharpe()`, `compare_ranking_criteria()`, `repeat_threshold_search()`(K=50, **미실행**), `build_validation_scores()`, `scores_for_assumptions()` |
+
+> **산출물** — `oof_diagnostics.py` 5종: `outputs/oof_c1_cell_means_{label}.csv`(칸별 `pd`·`xr_normal`·
+> `E[XR]`·`q_score`·`int_rate`) · `oof_c2_int_rate_dispersion.csv`(칸별 금리 산포) ·
+> `oof_c3_quantile_share.csv`(Train/Validation 분위 인원 비율) · `oof_c4_calibration.csv`(보정 전/후
+> 지표·ECE 바닥값·칸 균형) · `oof_default_cell_stats_{label}.csv`(칸별 `mu_부도`·`var_부도`).
+> `sharpe_optimizer.py`: `outputs/sharpe_threshold_comparison.csv`(랭킹 기준 3종 + approve-all ×
+> 재투자 가정 2종의 `τ*`·승인율·절대 Sharpe·Δ Sharpe).
+> `{label}`은 `ReturnAssumptions.label()`이며 현재 `provisional_treasury_issue_fixed_fee0pct`다 —
+> **재투자 가정을 바꾸면 파일명이 바뀐다**(#18, 칸별 통계표까지 다시 만들어야 하므로 의도된 설계).
 
 > `sharpe_optimizer.py`가 지키는 것들 — 고칠 때 깨뜨리지 말 것:
 > - **Sharpe는 기대값이 아니라 Validation 실현 `XR`(`xr_realized`)로** 계산한다. 점수는 승인선을
