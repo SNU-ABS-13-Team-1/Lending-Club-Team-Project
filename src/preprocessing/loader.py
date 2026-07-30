@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 RAW_FILENAME = "lending_club_2020_train.csv"
+SECOND_TEST_FILENAME = "lending_club_2020_test_2nd.csv"
 DICT_FILENAME = "variable_dictionary_byGJ.xlsx"
 
 # 표본 필터 (decision_log.md #16, 2026-07-29 회의 확정)
@@ -86,6 +87,19 @@ TARGET_COLUMN = "loan_status"
 def raw_path() -> Path:
     """원본 대출 CSV 경로. 1.2GB이며 git에 없다 — 팀 공유 채널에서 받는다."""
     return load_config().paths.data_raw / RAW_FILENAME
+
+
+def second_test_path() -> Path:
+    """**2nd Test CSV** 경로 (1,170,198행 × 141열, 850MB, git 미추적).
+
+    이름의 `2nd`는 **매니페스트 6:2:2의 Test(20%, 144,713건)와 다른 집합**임을 뜻한다 —
+    둘을 같은 "Test"로 부르면 어느 쪽 Sharpe인지 구분되지 않는다.
+
+    `RAW_FILENAME`(train)과 **id가 한 건도 겹치지 않는 별도 파일**이며 컬럼 구성은 동일하다.
+    `filter_analysis_sample(..., verify=False)`를 통과하면 481,833건이 남는다
+    (부도율 16.20%) — `EXPECTED_SAMPLE_SIZE`는 train 기준이므로 `verify=True`로 부르지 않는다.
+    """
+    return load_config().paths.data_raw / SECOND_TEST_FILENAME
 
 
 def dictionary_path() -> Path:

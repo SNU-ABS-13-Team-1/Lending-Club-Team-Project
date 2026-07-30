@@ -354,11 +354,16 @@ def build_excess_returns(
     )
 
 
-def build_return_inputs() -> pd.DataFrame:
+def build_return_inputs(
+    csv_path: Path | None = None, verify_sample: bool = True
+) -> pd.DataFrame:
     """수익률 계산에 필요한 **사후 컬럼**을 분석 표본(723,563건)에 맞춰 로드한다.
 
     반환 프레임은 피처 테이블과 **같은 인덱스**를 갖는다 — `id`로 조인하지 않아도
     `loc`으로 정렬이 맞는다. `K`는 발행 → 최종납입 개월 수다.
+
+    `csv_path`는 train 원본 대신 다른 CSV를 읽을 때만 준다(`loader.second_test_path()`).
+    표본 건수 검증(723,563)은 train 기준이므로 `verify_sample=False`를 함께 준다.
 
     ⚠️ 이 프레임을 모델 입력에 섞지 않는다(`src/preprocessing/AGENTS.md` 누수 방지).
     """
@@ -372,8 +377,8 @@ def build_return_inputs() -> pd.DataFrame:
         "total_pymnt", "recoveries", "collection_recovery_fee",
         "last_pymnt_amnt", "last_pymnt_d",
     ]
-    raw = load_raw_loans(usecols=cols)
-    s = filter_analysis_sample(raw)
+    raw = load_raw_loans(usecols=cols, csv_path=csv_path)
+    s = filter_analysis_sample(raw, verify=verify_sample)
 
     s["term"] = s["term"].astype(str).str.extract(r"(\d+)")[0].astype(float)
     s["int_rate"] = pd.to_numeric(

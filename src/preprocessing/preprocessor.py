@@ -124,6 +124,7 @@ def build_feature_table(
     nrows: int | None = None,
     verify_sample: bool = True,
     apply_decisions: bool = True,
+    csv_path: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     """원본 → `(X, y, meta)`.
 
@@ -136,14 +137,18 @@ def build_feature_table(
     `apply_decisions=False`면 `loader.EXCLUDED_BY_DECISION`(현재 `zip_code`)을 **빼지 않고**
     돌려준다 — 제외 전후를 나란히 비교해야 하는 `model_comparison.py` 전용이다.
     본 파이프라인은 기본값을 쓴다.
+
+    `csv_path`는 train 원본 대신 다른 CSV를 같은 파이프라인으로 읽을 때만 준다
+    (`loader.second_test_path()`의 2nd Test). 표본 건수 검증은 train 기준이므로
+    그때는 `verify_sample=False`를 함께 준다.
     """
-    head = load_raw_loans(nrows=5)
+    head = load_raw_loans(nrows=5, csv_path=csv_path)
     features, _ = select_feature_columns(list(head.columns), apply_decisions=apply_decisions)
 
     needed = sorted(set(features) | set(META_COLUMNS) | {TARGET_COLUMN, "issue_d", "term"})
     available = [c for c in needed if c in head.columns]
 
-    raw = load_raw_loans(usecols=available, nrows=nrows)
+    raw = load_raw_loans(usecols=available, nrows=nrows, csv_path=csv_path)
     sample = filter_analysis_sample(raw, verify=verify_sample and nrows is None)
 
     y = make_target(sample[TARGET_COLUMN])
