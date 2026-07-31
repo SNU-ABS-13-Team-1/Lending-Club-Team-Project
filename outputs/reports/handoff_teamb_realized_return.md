@@ -6,6 +6,13 @@
 > 확정 사항의 단일 원본은 여전히 `outputs/reports/decision_log.md`다 — 이 문서와 어긋나면
 > `decision_log.md`가 우선이고 이 문서를 고친다.
 
+> **[추기 2026-07-31]** 본문이 "1순위 미결"로 남긴 **조기상환 보정은 확정·구현 완료됐다**
+> (`decision_log.md` #22 ③, 2026-07-31 회의). B팀 명세를 `src/analysis/realized_return_cashflow.py`로
+> 재현해 train에서 B팀 CSV와 일치를 확인했고(`verify_against_teamb()`), 칸별 `Δ̄_조기상환,d`·
+> `var_정상,d`는 `realized_return.normal_cell_stats()`가 추정한다. 국채 금리(ⓒ + 역할 3분리)·
+> 서비스수수료(0%)도 함께 확정됐다(#22 ①·②). **아래 본문은 보정 확정 전 시점의 기록**으로
+> 보존한다 — 현행 규칙은 `decision_log.md` #22와 `src/analysis/AGENTS.md`를 본다.
+
 ---
 
 ## 0. 한 장 요약 — B팀이 만들어야 하는 것

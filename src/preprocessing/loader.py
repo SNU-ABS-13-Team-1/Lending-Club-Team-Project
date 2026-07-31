@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 RAW_FILENAME = "lending_club_2020_train.csv"
+SECOND_TEST_FILENAME = "lending_club_2020_test_2nd.csv"
 DICT_FILENAME = "variable_dictionary_byGJ.xlsx"
 
 # 표본 필터 (decision_log.md #16, 2026-07-29 회의 확정)
@@ -67,12 +68,38 @@ NON_FEATURE_PRE_APPROVAL: dict[str, str] = {
     "desc": "자유서술 (원본에 없음)",
 }
 
+# 사전 변수이고 식별자·자유서술도 아니지만 **팀 결정으로 피처에서 뺀 것**.
+# 위 두 목록과 이유가 다르다 — 저 둘은 "원리상 피처가 아니다", 이쪽은 "실측해 보니 모형을
+# 깎는다"다. 그래서 목록을 합치지 않고 따로 둔다(사유가 섞이면 나중에 판단 근거를 잃는다).
+#
+# `zip_code`: 911개 범주의 고카디널리티 변수로, XGBoost가 Train의 칸별 부도율을 암기한다.
+#   같은 재분할에 `main` / `main − zip_code`를 짝지어 돌린 검증에서 제외 쪽이 **24 seed 전부
+#   우세**했고(재투자 가정 2종 × 랭킹 기준 3종 = 6조합 모두 24/24), 국채·`q_score` 기준
+#   짝지은 차이는 Δ Sharpe **+0.0122**(sd 0.0020)였다.
+#   근거: `outputs/reports/model_comparison_kgj.md`, `outputs/model_comparison_stability.csv`.
+EXCLUDED_BY_DECISION: dict[str, str] = {
+    "zip_code": "고카디널리티(911범주) 과적합 — 짝지은 검증 24/24 제외 우세, Δ Sharpe +0.0122",
+}
+
 TARGET_COLUMN = "loan_status"
 
 
 def raw_path() -> Path:
     """원본 대출 CSV 경로. 1.2GB이며 git에 없다 — 팀 공유 채널에서 받는다."""
     return load_config().paths.data_raw / RAW_FILENAME
+
+
+def second_test_path() -> Path:
+    """**2nd Test CSV** 경로 (1,170,198행 × 141열, 850MB, git 미추적).
+
+    이름의 `2nd`는 **매니페스트 6:2:2의 Test(20%, 144,713건)와 다른 집합**임을 뜻한다 —
+    둘을 같은 "Test"로 부르면 어느 쪽 Sharpe인지 구분되지 않는다.
+
+    `RAW_FILENAME`(train)과 **id가 한 건도 겹치지 않는 별도 파일**이며 컬럼 구성은 동일하다.
+    `filter_analysis_sample(..., verify=False)`를 통과하면 481,833건이 남는다
+    (부도율 16.20%) — `EXPECTED_SAMPLE_SIZE`는 train 기준이므로 `verify=True`로 부르지 않는다.
+    """
+    return load_config().paths.data_raw / SECOND_TEST_FILENAME
 
 
 def dictionary_path() -> Path:
@@ -111,24 +138,33 @@ def verify_dictionary_overrides(dictionary: pd.DataFrame | None = None) -> list[
 
 
 def select_feature_columns(
-    raw_columns: list[str], dictionary: pd.DataFrame | None = None
+    raw_columns: list[str],
+    dictionary: pd.DataFrame | None = None,
+    apply_decisions: bool = True,
 ) -> tuple[list[str], dict[str, str]]:
     """피처로 쓸 컬럼과, 제외된 사전 변수의 사유를 함께 돌려준다.
 
     사후 변수는 애초에 `pre_approval_columns()`에 없으므로 여기서 다시 거르지 않는다
     (누수 방지 목록은 전부 사후로 라벨돼 있음을 `test_leakage_columns_are_post()`가 확인한다).
+
+    `apply_decisions=True`(기본)면 `EXCLUDED_BY_DECISION`도 뺀다. **비교 실험에서만 False로
+    둔다** — 제외 전후를 나란히 돌려야 하는 `model_comparison.py`가 그 경우다. 본 파이프라인은
+    기본값을 쓴다.
     """
     pre = pre_approval_columns(dictionary)
     present = [c for c in pre if c in raw_columns]
+    dropped = dict(NON_FEATURE_PRE_APPROVAL)
+    if apply_decisions:
+        dropped |= EXCLUDED_BY_DECISION
 
     excluded: dict[str, str] = {}
     for col in pre:
         if col not in raw_columns:
             excluded[col] = "원본에 없음"
-        elif col in NON_FEATURE_PRE_APPROVAL:
-            excluded[col] = NON_FEATURE_PRE_APPROVAL[col]
+        elif col in dropped:
+            excluded[col] = dropped[col]
 
-    features = [c for c in present if c not in NON_FEATURE_PRE_APPROVAL]
+    features = [c for c in present if c not in dropped]
     return features, excluded
 
 

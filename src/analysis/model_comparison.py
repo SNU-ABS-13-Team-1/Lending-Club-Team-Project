@@ -323,7 +323,8 @@ def sharpe_for(pd_oof, p_va_raw, p_va_cal, xr, tr_idx, va_idx) -> pd.DataFrame:
 def block_cv(seed: int) -> pd.DataFrame:
     hdr("블록 cv — 6스펙 5-fold 교차검증 + Δ Sharpe (리포트 4절)")
 
-    X_team, y, meta = build_feature_table()
+    # 비교 실험이므로 `zip_code`를 남긴 채 받는다 — 제외 전후를 나란히 돌리는 게 이 블록의 질문이다.
+    X_team, y, meta = build_feature_table(apply_decisions=False)
     parts = split_from_manifest(X_team, y, meta)
     tr_idx = parts["train"][0].index
     va_idx = parts["validation"][0].index
@@ -630,7 +631,8 @@ def block_stability(seed_list: list[int], out_path: Path) -> pd.DataFrame:
     hdr(f"블록 stability — seed {seed_list[0]}~{seed_list[-1]} ({len(seed_list)}개) 재분할 반복")
     print(f"산출(덧붙임) → {out_path.name}", flush=True)
 
-    X_team, y, meta = build_feature_table()
+    # 위 cv 블록과 같은 이유로 `zip_code`를 남긴 채 받는다(짝지은 비교가 이 블록의 목적).
+    X_team, y, meta = build_feature_table(apply_decisions=False)
     outcome = build_return_inputs()
     xr_by = {"treasury": build_excess_returns(outcome, ReturnAssumptions()),
              "cash": build_excess_returns(outcome, cash_reinvestment(ReturnAssumptions()))}
