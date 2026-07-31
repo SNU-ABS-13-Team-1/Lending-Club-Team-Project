@@ -273,6 +273,7 @@
 | `src/utils/config.py` | `config.yaml` 로더 (경로·분할·seed 단일 출처) | 동작 |
 | `src/utils/logger.py` | 공통 로깅 | 동작 (**현재 아무도 쓰지 않음**) |
 | `src/utils/export_code_appendix.py` | 부록 C **별책 생성** — `src/` 전체 → `outputs/reports/`. `--check`로 어긋남 대조 | 동작 |
+| `scripts/build_report_pdf.py` | **제출용 보고서 PDF 조판** — `final_report_v3.md` → `share/` (표지·목차 쪽번호·러닝 헤더·LaTeX 수식). `src/` 밖인 이유: 분석 코드가 아니라 부록 C 집계에서 제외 | 동작 |
 
 > ⚠️ **변수 사전 시트의 `is_pre_approval`이 확정 사항(#1·#17 ③)과 어긋나 있다** — 그대로 믿으면
 > LC 조건변수 8개가 빠져 Lean 스펙이 된다. `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 보정 중이며

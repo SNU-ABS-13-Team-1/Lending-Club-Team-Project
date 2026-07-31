@@ -25,3 +25,6 @@ PyYAML>=6.0
 # --- src/analysis/ 모델 비교 스크립트 (--with-model 옵션 포함) ---
 scikit-learn>=1.7,<2.0
 xgboost>=3.0,<4.0
+
+# --- scripts/build_report_pdf.py (제출용 보고서 PDF 조판 전용 — 분석 수치와 무관) ---
+PyPDF2>=3.0
