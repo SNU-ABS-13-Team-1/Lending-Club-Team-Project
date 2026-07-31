@@ -175,6 +175,7 @@
 | 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
 | **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
 | **최종 결과 — 8:2 K=50·2nd Test** (이슈 #32 — **최종 수치 단일 원본**: Δ Sharpe +0.0893·승자 seed 26·그림 6종) | `final_result_kgj.md` |
+| **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용. PDF판은 `share/`에 코드 전문 포함 204쪽) | `final_report.md` |
 
 > 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다(decision #22 ③·#23) — 안건 A 부분 채택 ·
 > B 등가중 헤드라인+금액가중 병기 · C(Test 재추출) 기각. **채택된 항목만 구현 근거로 쓴다.**
@@ -284,6 +285,7 @@
 | --- | --- |
 | `docs/macro_indicators_spec.md` | 외부 데이터 수집 규격 (기간·컬럼·검증·출처 카드) |
 | `docs/GIT_CONVENTION.md` | 브랜치·커밋·PR 규칙, 파일명 이니셜 규칙 |
+| `docs/REPORT_CONVENTION.md` | **제출용 보고서 작성 규칙** — 내부 기록(결정 서사·이슈 번호·논쟁 방어)을 심사자 대상 서술로 번역하는 규칙 7종 + 점검 체크리스트 |
 | `docs/architecture.md` | 파이프라인 구조 (Mermaid) |
 | `config/config.yaml` | 경로·분할 비율·seed 공통 설정 (`src/utils/config.py`로 읽는다) |
 | `requirements.txt` | 실행 환경 버전 고정 |

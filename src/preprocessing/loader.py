@@ -219,8 +219,9 @@ def filter_analysis_sample(df: pd.DataFrame, verify: bool = True) -> pd.DataFram
        스냅샷(2020-10) 시점에 만기가 도래하지 않은 완결건은 조기부도가 과대표집돼
        부도율이 8.5%p 높다.
 
-    ⚠️ `Default` 268건(만기 내 113건)은 **현재 제외된다.** `Charged Off`에 합칠지는
-    미결이며(`decision_log.md` 「부수 결정」), 합치면 표본이 723,676건이 된다.
+    `Default` 268건(만기 내 113건)은 상각 미확정 단계라 **제외한다** —
+    `decision_log.md` #24 ① 정정(2026-07-31). K=50·2nd Test 등 공표된 모든 수치가
+    이 기준(723,563건)으로 산출됐다. 합치면 표본이 723,676건이 된다.
     """
     status = normalize_loan_status(df[TARGET_COLUMN])
     term_months = parse_term_months(df["term"])
