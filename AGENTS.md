@@ -172,14 +172,14 @@
 | **실현수익률 개정안** (이슈 #23 — **부분 채택**: 현금흐름 재구성·역할인 채택, decision #22 ③) | `realized_return_treasury_reinvestment_methodology.md` |
 | **초과수익 선별 개정안** (이슈 #23 — **등가중 헤드라인+금액가중 병기·재추출 기각**, decision #23) | `excess_return_sharpe_selection_methodology.md` |
 | **#23 개정안 교차검토** (일치 6·채택권고 3·팀결정 3 — **회의 처리 완료**, decision #22~#23) | `methodology_23_review_kgj.md` |
+| **계산식 참고자료** (실현·초과수익률·`q_score`·Sharpe 전 과정 수식 — 보고서 작성용, 유명곤) | `return_excess_sharpe_report_writing_notes.md` |
 | 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
 | **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
 | **최종 결과 — 8:2 K=50·2nd Test** (이슈 #32 — **최종 수치 단일 원본**: Δ Sharpe +0.0893·승자 seed 26·그림 6종) | `final_result_kgj.md` |
 | **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용) | `final_report.md` |
 | **부록 C 별책 — 전체 구현 코드** (`src/` 31개 파일 8,197줄 전문. **생성물이니 손으로 고치지 말 것** — `export_code_appendix.py`로 재생성, `--check`로 대조) | `final_report_code_appendix.md` |
 
-> 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다(decision #22 ③·#23) — 안건 A 부분 채택 ·
-> B 등가중 헤드라인+금액가중 병기 · C(Test 재추출) 기각. **채택된 항목만 구현 근거로 쓴다.**
+> 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다 — A 부분 채택 · B 등가중 헤드라인 · C 기각(#22 ③·#23). **채택된 항목만 구현 근거로 쓴다.**
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
