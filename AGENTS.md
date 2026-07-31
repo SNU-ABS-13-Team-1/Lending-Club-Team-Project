@@ -63,9 +63,10 @@
 | 최종 모형 선택 규칙 | ✅ **확정 — K=50 중 Validation Sharpe 최고 모델** (`median_tau` 병기) | #21 ④ |
 | 분할 8:2 + 2nd Test·OOF 3-fold | ✅ **확정** (Test 재추출 기각, K=50 유지) | #21 ⑥·#23 |
 | 모형 후보 제출 규격 (CV 평균±sd·OOF PD) | ✅ **확정 — 승인** | #21 ⑦ |
-| 시각화 규칙 | ❌ 미착수 | — |
+| 시각화 규칙 | 🟡 **제안 — 팀 확정 전** (`src/viz/AGENTS.md`, 코드는 동작) | — |
 
-> **2026-07-31 회의로 방법론 미확정이 전부 소진됐다**(#21~#24). 남은 미착수는 시각화 규칙뿐이다.
+> **2026-07-31 회의로 방법론 미확정이 전부 소진됐다**(#21~#24). 코드는 `plots.py`까지 전부
+> 동작하며, 남은 것은 시각화 규칙의 **팀 승인**뿐이다(그림 결과에는 영향 없음).
 > 손실값·가정을 **주입받는 형태**로 짜는 구조(#19)는 유지한다 — 가정 변경 시 재학습 없이 재계산한다.
 
 ### 실현수익률 — **전부 확정** (구조 A′ + 세부 3건, 2026-07-31)
@@ -153,8 +154,7 @@
 | 회의에서 결정할 안건(선택지·근거·권고안) | `outputs/reports/meeting_YYYYMMDD.md` |
 | 아직 확정되지 않은 미결 사항 | 각 문서의 "팀 협의 필요"·"미확정" 표기 |
 
-> `decision_log.md`를 먼저 읽지 않으면 이미 결정된 사항을 다시 논의하거나,
-> 미확정 사항을 확정된 것처럼 다루게 된다.
+> `decision_log.md`를 먼저 읽지 않으면 결정된 사항을 다시 논의하거나 미확정을 확정처럼 다루게 된다.
 
 ### 주제별 방법론 문서 (`outputs/reports/`)
 
@@ -175,7 +175,8 @@
 | 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
 | **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
 | **최종 결과 — 8:2 K=50·2nd Test** (이슈 #32 — **최종 수치 단일 원본**: Δ Sharpe +0.0893·승자 seed 26·그림 6종) | `final_result_kgj.md` |
-| **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용. PDF판은 `share/`에 코드 전문 포함 204쪽) | `final_report.md` |
+| **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용) | `final_report.md` |
+| **부록 C 별책 — 전체 구현 코드** (`src/` 31개 파일 8,197줄 전문. **생성물이니 손으로 고치지 말 것** — `export_code_appendix.py`로 재생성, `--check`로 대조) | `final_report_code_appendix.md` |
 
 > 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다(decision #22 ③·#23) — 안건 A 부분 채택 ·
 > B 등가중 헤드라인+금액가중 병기 · C(Test 재추출) 기각. **채택된 항목만 구현 근거로 쓴다.**
@@ -234,18 +235,14 @@
 | `src/analysis/auc_sample_filter_comparison.py` | `oof_diagnostics_kgj.md` (**AUC 0.71대 = #16 필터 이전 값**) | `outputs/auc_sample_filter_comparison.csv` |
 | `src/analysis/model_comparison.py` (`--only` 6블록) | `model_comparison_kgj.md` (**팀원 3인 스펙 비교·`zip_code` 근거**) | `outputs/model_comparison_*.csv` (8종) |
 
-> ⚠️ **예외 — `model_comparison.py`는 `config.yaml`의 매니페스트 분할을 쓴다.** 비교 질문이
-> "팀 표준 분할에서 어느 스펙이 나은가"이므로 자체 분할을 쓰면 질문이 달라진다. Test는 열지 않는다.
-> `--only stability`는 수십 분~수 시간이라 기본 실행에서 빠져 있고, 증분 저장·재시작을 지원한다.
+> ⚠️ **예외 — `model_comparison.py`는 `config.yaml`의 매니페스트 분할을 쓴다**(질문이 "팀 표준
+> 분할에서 어느 스펙이 나은가"라서). Test는 열지 않는다. `--only stability`는 수 시간이라 기본에서 빠져 있다.
 
-> **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않는다(자체 분할·자체 seed — 의도된 차이.
-> 성격 구분 상세는 `src/analysis/AGENTS.md`). AUC는 상대 비교 전용이며, 여기서 나오는 0.68대는
-> Lean 스펙 값 — **최종 모형 성능으로 인용 금지**(#13 ⑤). 대부분 1.2GB 원본을 읽어 수 분~수십 분 걸린다.
-> 실현수익률 2종은 모형 학습이 없고, `realized_return_sensitivity.py`는 #18 재투자 가정 검증 전용이다.
-> **본 파이프라인의 실현수익률 구현은 `src/analysis/realized_return.py`** — B팀 작업의 출발점은
-> 이쪽이다 (`outputs/reports/handoff_teamb_realized_return.md`).
-> ⚠️ **0% 재투자 구현이 셋이라 값이 갈린다 — 인용은 파이프라인(`reinvest="cash"`) 값으로 통일한다.**
-> `hpr_realized_return.py`는 `total_pymnt` 원값, 파이프라인은 `−recoveries` 분해 후 제외 적용(#24 ⑤).
+> **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않는다(자체 분할·seed — 의도된 차이, 상세는
+> `src/analysis/AGENTS.md`). AUC는 상대 비교 전용이고 여기 나오는 0.68대는 Lean 스펙 값 —
+> **최종 모형 성능으로 인용 금지**(#13 ⑤). 대부분 1.2GB 원본을 읽어 수 분~수십 분 걸린다.
+> ⚠️ **실현수익률의 기준 구현은 본 파이프라인 `realized_return.py`다**(B팀 인계는 `handoff_teamb_*`).
+> 0% 재투자 구현이 셋이라 값이 갈리므로 **인용은 `reinvest="cash"` 값으로 통일**한다(#24 ⑤).
 
 **③ 본 파이프라인** — 여기에 "규칙"이 그대로 적용된다
 
@@ -260,14 +257,12 @@
 | `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교·**K=50 본실행**(`--repeat 0-49`) | 동작 |
 | `src/analysis/final_evaluation.py` | **Test 1회 평가** — 이긴 모델 재현·고정 τ* 적용·최종 Sharpe 확정 | 동작 |
 | `src/analysis/second_test_evaluation.py` | **2nd Test 외부 표본 평가** — 승자 모델·τ* 고정 적용(decision #23) | 동작 |
-| `src/viz/plots.py` | 차트 생성 | **뼈대(TODO)** |
+| `src/viz/plots.py` | 그림 6종 생성 — 산출 CSV만 읽는다(재계산 금지, `src/viz/AGENTS.md`) | 동작 |
 
-> ⚠️ `realized_return.py`의 가정(국채 ⓒ · 수수료 0% · 조기상환 cashflow 반영)은 #22로 전부
-> 확정됐고, 여전히 `ReturnAssumptions`로 **주입받는다** — 산출물 파일명에 `label()`이 붙어 어느
-> 가정인지 추적된다(`provisional` 라벨은 기존 산출물 연속성 위해 유지). 목록은 `src/analysis/AGENTS.md`.
-> ⚠️ **PD에는 두 역할이 있고 서로 다른 값을 쓴다**(#21 ②·진단 C-4): 분위 경계·배정과 승인선 점수는
-> **보정 전** PD, `E[XR]`·`Var[XR]`의 `p̂`만 isotonic **보정 후** PD. 근거 수치는
-> `src/analysis/AGENTS.md`와 `oof_diagnostics_kgj.md`·`sharpe_threshold_kgj.md`에 있다.
+> ⚠️ `realized_return.py`의 가정(국채 ⓒ · 수수료 0% · 조기상환 반영)은 #22로 확정됐고 여전히
+> `ReturnAssumptions`로 **주입받는다** — 산출물 파일명의 `label()`로 어느 가정인지 추적된다.
+> ⚠️ **PD는 역할별로 값이 다르다**(#21 ②·진단 C-4): 분위 경계·배정과 승인선 점수는 **보정 전** PD,
+> `E[XR]`·`Var[XR]`의 `p̂`만 isotonic **보정 후** PD. 근거 수치는 `src/analysis/AGENTS.md`.
 
 **공통 유틸**
 
@@ -275,13 +270,11 @@
 | --- | --- | --- |
 | `src/utils/config.py` | `config.yaml` 로더 (경로·분할·seed 단일 출처) | 동작 |
 | `src/utils/logger.py` | 공통 로깅 | 동작 (**현재 아무도 쓰지 않음**) |
+| `src/utils/export_code_appendix.py` | 부록 C **별책 생성** — `src/` 전체 → `outputs/reports/`. `--check`로 어긋남 대조 | 동작 |
 
-> 남은 뼈대(`plots.py`)는 방법론 확정 전이라 의도적으로 비워둔 것이다. 채우기 전에
-> `decision_log.md`와 위 「현재 진행 단계」에서 확정 여부를 먼저 확인한다.
-> ⚠️ **변수 사전 시트의 `is_pre_approval`이 확정 사항(#1·#17 ③)과 어긋나 있다** — 시트를 그대로
-> 믿으면 LC 조건변수(`grade`·`sub_grade`·`int_rate` 등 8개)가 빠져 Lean 스펙이 된다.
-> `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 코드에서 보정 중이며 **시트 개정은 열린 실행 항목**이다
-> (`preprocessing_crosscheck_kgj.md` 10절).
+> ⚠️ **변수 사전 시트의 `is_pre_approval`이 확정 사항(#1·#17 ③)과 어긋나 있다** — 그대로 믿으면
+> LC 조건변수 8개가 빠져 Lean 스펙이 된다. `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 보정 중이며
+> **시트 개정은 열린 실행 항목**이다(`preprocessing_crosscheck_kgj.md` 10절).
 
 ### 규격·컨벤션
 
