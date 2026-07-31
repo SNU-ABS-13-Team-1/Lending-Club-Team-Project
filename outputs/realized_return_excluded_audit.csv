@@ -1,0 +1,10 @@
+sample,n_filtered,exclude_reason,status,term,n
+train,723563,L이_C_regular_초과,Fully Paid,36,854
+train,723563,L이_C_regular_초과,Charged Off,36,256
+train,723563,L이_C_regular_초과,Fully Paid,60,76
+train,723563,L이_C_regular_초과,Charged Off,60,23
+train,723563,last_pymnt_amnt_음수,Fully Paid,36,1
+2nd_test,481833,L이_C_regular_초과,Fully Paid,36,597
+2nd_test,481833,L이_C_regular_초과,Charged Off,36,164
+2nd_test,481833,L이_C_regular_초과,Fully Paid,60,58
+2nd_test,481833,L이_C_regular_초과,Charged Off,60,17

@@ -24,6 +24,7 @@ data/processed/excess_return*.csv
 !outputs/realized_return_spec_check_cascade.csv
 !outputs/realized_return_spec_check_R_by_status_term.csv
 !outputs/realized_return_sensitivity.csv
+!outputs/realized_return_excluded_audit.csv
 
 # 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
 share/
