@@ -772,7 +772,7 @@ a_i^{ReturnOracle}
 
 ⚠️ 건별 `R`·`rf`·`XR` 원본은 B팀 산출 CSV(251MB)이며 **git에 없다.** 같은 값은
 `src/analysis/realized_return_cashflow.py`의 `build_cashflow_schedule()`·
-`realized_return()`으로 재현할 수 있고(`verify_against_teamb()`가 대조용), 본 파이프라인의
+`realized_return_actual()`로 재현할 수 있고(`verify_against_teamb()`가 대조용), 본 파이프라인의
 동일 계산은 `src/analysis/realized_return.py`가 담당한다.
 
 | 전략 | 승인 건수 | 승인금액 비중 | 포트폴리오 수익률 | 평균 초과수익률 | 횡단면 표준편차 | \(S\) |
