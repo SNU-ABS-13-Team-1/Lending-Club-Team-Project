@@ -15,8 +15,12 @@
 실행:
     /opt/anaconda3/bin/python src/analysis/hpr_realized_return.py
 산출:
-    outputs/hpr_realized_return.csv          (건별 HPR·연율화 수익률)
-    outputs/hpr_realized_return_summary.csv  (상태×만기 요약 통계)
+    outputs/hpr_realized_return_full.csv     (건별 723,563행 — **git 미추적**)
+    outputs/hpr_realized_return_summary.csv  (상태×만기 요약 통계 — 커밋한다)
+
+⚠️ 건별 산출물은 반드시 `*_full.csv`로 둔다. `src/preprocessing/AGENTS.md`의 전수/표본
+명명 규칙이자, `.gitignore`가 전수 결과를 걸러내는 규칙이 `*_full.csv`이기 때문이다 —
+이름을 바꾸면 58MB CSV가 그대로 추적 대상이 된다.
 """
 
 from __future__ import annotations
@@ -26,11 +30,14 @@ from pathlib import Path
 
 import pandas as pd
 
-# 레포 루트에서 실행해도, src/analysis에서 실행해도 loader를 찾도록 경로 추가
+# 저장소의 다른 모듈과 **같은 방식**으로 경로를 잡는다 — `src/`를 sys.path에 넣고
+# `preprocessing.…`로 import한다. 루트를 넣고 `src.preprocessing.…`로 부르면 같은 파일이
+# 별개 모듈 객체로 두 번 올라가, `loader.py`의 모듈 수준 상수(`PRE_APPROVAL_OVERRIDES` 등)가
+# 두 벌 생긴다. `src/__init__.py`도 없어 namespace package에 의존하게 된다.
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.preprocessing.loader import (  # noqa: E402
+from preprocessing.loader import (  # noqa: E402
     filter_analysis_sample,
     load_raw_loans,
     parse_term_months,
@@ -63,7 +70,7 @@ def main() -> None:
     )
 
     OUT_DIR.mkdir(exist_ok=True)
-    detail_path = OUT_DIR / "hpr_realized_return.csv"
+    detail_path = OUT_DIR / "hpr_realized_return_full.csv"
     out.to_csv(detail_path, index=False)
 
     # 상태 × 만기 요약 — 보고서 표에 바로 인용할 수 있는 형태

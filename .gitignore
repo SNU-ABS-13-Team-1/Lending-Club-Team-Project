@@ -14,6 +14,7 @@ data/raw/lending_club_2020_test_2nd.csv
 # src/preprocessing/AGENTS.md "결과 파일 저장 규칙"에 있다. 요약 집계표만 outputs/에 커밋하고,
 # 전체 결과는 각자 스크립트로 재생성한다.
 *_full.csv
+*_full.parquet
 outputs/realized_return*.csv
 outputs/excess_return*.csv
 data/processed/realized_return*.csv
