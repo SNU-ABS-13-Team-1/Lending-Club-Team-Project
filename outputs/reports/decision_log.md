@@ -628,7 +628,12 @@
 - ~~확정된 규칙으로 `src/preprocessing/preprocessor.py` 구현 (현재 뼈대)~~
   → **완료 (2026-07-30, 커밋 `7e1cb9d`·`c18a40b`)**. `loader.py`·`preprocessor.py`·`model.py`·
   `realized_return.py`·`oof_diagnostics.py`·`sharpe_optimizer.py`·`final_evaluation.py`·
-  `second_test_evaluation.py`가 동작한다. **남은 뼈대는 `src/viz/plots.py`(시각화 규칙 미착수)뿐이다.**
+  `second_test_evaluation.py`가 동작한다. ~~남은 뼈대는 `src/viz/plots.py`(시각화 규칙 미착수)뿐이다.~~
+  → **`plots.py`도 완료됐다** (2026-07-31, 커밋 `b92279f` — 그림 6종 생성, `src/viz/AGENTS.md`와
+  함께 들어왔다). **저장소에 남은 뼈대는 없다.** 다만 시각화 **규칙**은 아직 `status: 제안`이다(아래).
+- **시각화 규칙 팀 승인** — `src/viz/AGENTS.md`가 `status: 제안 (2026-07-31, kgj)`으로 남아 있다.
+  방법론과 달리 결과 수치를 바꾸지 않아 작업을 막지 않았으므로 그림은 이미 나와 있고, 승인 뒤
+  status 줄만 갱신하면 된다.
 - 변수분류 시트 개정 (`preprocessing_crosscheck_kgj.md` 10절 "시트 수정 항목")
 - 팀원 3인 검증 문서 PR merge (`preprocessing_review_rsh` / `_ymg` / `missing_value_analysis`)
 - Lending Club 관련 추가 문헌 확인
