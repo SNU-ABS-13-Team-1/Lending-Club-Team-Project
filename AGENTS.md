@@ -285,6 +285,7 @@
 | --- | --- |
 | `docs/macro_indicators_spec.md` | 외부 데이터 수집 규격 (기간·컬럼·검증·출처 카드) |
 | `docs/GIT_CONVENTION.md` | 브랜치·커밋·PR 규칙, 파일명 이니셜 규칙 |
+| `docs/REPORT_CONVENTION.md` | **제출용 보고서 작성 규칙** — 내부 기록(결정 서사·이슈 번호·논쟁 방어)을 심사자 대상 서술로 번역하는 규칙 7종 + 점검 체크리스트 |
 | `docs/architecture.md` | 파이프라인 구조 (Mermaid) |
 | `config/config.yaml` | 경로·분할 비율·seed 공통 설정 (`src/utils/config.py`로 읽는다) |
 | `requirements.txt` | 실행 환경 버전 고정 |
