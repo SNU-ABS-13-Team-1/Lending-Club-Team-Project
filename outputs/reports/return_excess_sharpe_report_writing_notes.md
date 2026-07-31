@@ -2,7 +2,7 @@
 title: 실현수익률·초과수익률·Sharpe 계산식 보고서 작성 참고자료
 status: report-writing-reference-draft
 updated: 2026-07-31
-scope: 실현수익률, 국채 재투자, 초과수익률, q_score, 고정 원금가중 Sharpe, 기준전략·Oracle
+scope: 실현수익률, 국채 재투자, 초과수익률, q_score, 등가중 Sharpe, 기준전략·Oracle
 related:
   - outputs/reports/decision_log.md
   - outputs/reports/realized_return_treasury_reinvestment_methodology.md
