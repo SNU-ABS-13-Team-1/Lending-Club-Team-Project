@@ -56,8 +56,9 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
@@ -247,12 +248,42 @@ def compare_ranking_criteria(
     return pd.DataFrame(rows)
 
 
+def append_row_csv(path: Path, row: dict) -> None:
+    """행 하나를 CSV에 즉시 덧붙인다. 파일이 없으면 헤더를 쓴다.
+
+    K=50 반복은 seed마다 5-fold OOF + 최종 모델(=6회 학습)이라 전체가 수 시간이다.
+    **끝까지 돌려야 결과가 나오는 구조면 중간에 끊기면 전부 날아간다** — 그래서 반복마다
+    디스크에 남긴다. `completed_keys()`와 짝을 이뤄 재시작을 가능하게 한다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
+def completed_keys(path: Path, key_cols: tuple[str, ...]) -> set[tuple]:
+    """이미 계산된 조합의 키 집합. 없으면 빈 집합 — 중단된 실행을 이어서 돌릴 때 쓴다."""
+    if not path.exists():
+        return set()
+    done = pd.read_csv(path)
+    if not set(key_cols) <= set(done.columns):
+        raise ValueError(f"{path.name}에 키 컬럼 {key_cols}이 없다 — 파일을 지우고 다시 시작하라.")
+    return set(map(tuple, done[list(key_cols)].astype(str).to_numpy()))
+
+
 def repeat_threshold_search(
     score_fn: Callable[[int], tuple[pd.Series, pd.Series, bool]],
     n_repeats: int = 50,
     verbose: bool = True,
+    seeds: Iterable[int] | None = None,
+    append_to: Path | None = None,
 ) -> pd.DataFrame:
     """랜덤 6:2:2 분할을 **K=50회** 반복해 `τ*`의 분포(평균·표준편차)를 본다 (#18).
+
+    `seeds`를 주면 `range(n_repeats)` 대신 그 목록을 쓴다 — **구간을 나눠 여러 번에 걸쳐
+    돌릴 수 있다.** 각 반복이 seed 하나로 자족적이라(앞 결과를 뒤에서 쓰지 않는다) 어떤
+    순서로 쪼개 돌려도 **seed 집합이 같으면 결과가 같다.** 단 구간이 겹치면 같은 분할이
+    중복 집계되고, 빠지면 K가 줄어든다 — 합집합이 의도한 K와 같은지 확인하라.
+
+    `append_to`를 주면 반복마다 그 CSV에 덧붙이고, **이미 있는 seed는 건너뛴다**(재시작).
 
     Validation 표본 하나로 잰 Sharpe는 "진짜 성과"가 아니라 표본에 따라 흔들리는 추정치다 —
     대출 수익률이 부도 여부(베르누이)로 결정되므로 누가 Validation에 뽑혔는지에 따라 평균·
@@ -266,16 +297,126 @@ def repeat_threshold_search(
     ⚠️ **비용이 크다** — seed마다 5-fold OOF + 최종 모델이라 K=50이면 300회 학습이다.
     칸별 통계표를 seed마다 다시 만들지 seed 1개로 고정할지는 아직 미확정이다(#20 구현경로 2).
     """
+    todo = list(range(n_repeats)) if seeds is None else list(seeds)
+    done = completed_keys(append_to, ("seed",)) if append_to else set()
+
     rows = []
-    for seed in range(n_repeats):
+    for seed in todo:
+        if (str(seed),) in done:
+            if verbose:
+                print(f"  seed {seed:>3}  건너뜀 (이미 계산됨)")
+            continue
         score, xr, lower = score_fn(seed)
         res = find_optimal_threshold(score, xr, lower)
-        rows.append({"seed": seed, **res})
+        row = {"seed": seed, **res}
+        rows.append(row)
+        if append_to:
+            append_row_csv(append_to, row)
         if verbose:
             print(f"  seed {seed:>3}  τ*={res['threshold']:.6f}  "
                   f"승인율 {res['approval_rate']:.3%}  "
-                  f"Sharpe {res['sharpe']:.4f}  Δ {res['delta_sharpe']:+.4f}")
+                  f"Sharpe {res['sharpe']:.4f}  Δ {res['delta_sharpe']:+.4f}", flush=True)
+
+    if append_to and append_to.exists():
+        return pd.read_csv(append_to)   # 이전 구간까지 합친 전체를 돌려준다
     return pd.DataFrame(rows)
+
+
+def repeat_full_search(
+    seeds: Iterable[int],
+    out_path: Path,
+    verbose: bool = True,
+    scheme: str = "6_2_2",
+) -> pd.DataFrame:
+    """**본 실행** — 재분할 K회 × 랭킹기준 3종 × 재투자가정 2종의 `τ*`를 한 번에 낸다 (#18).
+
+    `repeat_threshold_search()`와 무엇이 다른가: 저쪽은 `score_fn(seed)` 하나를 반복하므로
+    **기준마다 모형을 다시 학습**한다(3 × 2 × 50 = 300 → 실제로는 1800회 학습). 여기서는
+    seed당 **6회 학습(5-fold OOF + 최종 1)** 만 하고, 그 위에서 정렬만 바꿔 6조합을 만든다 —
+    기준·가정은 학습에 개입하지 않기 때문이다(#19). K=50이면 총 300회 학습이다.
+
+    Test는 열지 않는다. `resplit_train_validation()`이 매니페스트의 Train+Validation 풀만
+    다시 가르므로 Test 20%는 seed와 무관하게 고정된다.
+
+    seed마다 6행을 CSV에 덧붙이고, **이미 있는 `(seed, reinvest, criterion)`은 건너뛴다** —
+    수 시간짜리라 중단·재시작이 필수다.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from analysis.realized_return import ReturnAssumptions, cash_reinvestment
+
+    treasury = ReturnAssumptions()
+    assumptions = (treasury, cash_reinvestment(treasury))
+
+    seed_list = list(seeds)
+    done = completed_keys(out_path, ("seed", "reinvest", "criterion"))
+    if done and verbose:
+        print(f"  이미 계산된 (seed, reinvest, criterion) {len(done)}쌍 — 건너뛴다", flush=True)
+
+    data = None
+    for seed in seed_list:
+        expected = {(str(seed), a.reinvest, c)
+                    for a in assumptions
+                    for c in ("pd (보정 전)", "E[XR]", "q_score")}
+        if expected <= done:
+            if verbose:
+                print(f"\nseed {seed}: 전부 계산됨 — 건너뜀", flush=True)
+            continue
+
+        if data is None:          # 첫 실제 계산 때만 원본을 읽는다
+            if verbose:
+                print("\n원본 로딩 (1회, 이후 seed에서 재사용)", flush=True)
+            data = load_pipeline_data()
+
+        t0 = time.time()
+        if verbose:
+            print(f"\n{'=' * 60}\nseed {seed}", flush=True)
+        bundle = build_validation_scores(seed=seed, verbose=verbose, data=data, scheme=scheme)
+        auc = float(np.mean(bundle["fold_auc"]))
+
+        for a in assumptions:
+            scores, realized, audit = scores_for_assumptions(bundle, a)
+            for crit, (score, lower) in scores.items():
+                if (str(seed), a.reinvest, crit) in done:
+                    continue
+                res = find_optimal_threshold(score, realized, lower)
+                append_row_csv(out_path, {
+                    "seed": seed, "reinvest": a.reinvest, "assumptions": a.label(),
+                    "criterion": crit, "fold_auc_mean": auc,
+                    "n_usable": audit["n_usable"], **res,
+                })
+                if verbose:
+                    print(f"  [{a.reinvest:8s}] {crit:12s} τ*={res['threshold']:.6f}  "
+                          f"승인율 {res['approval_rate']:.1%}  "
+                          f"Sharpe {res['sharpe']:.4f}  Δ{res['delta_sharpe']:+.4f}", flush=True)
+        if verbose:
+            print(f"  seed {seed} 완료 — {time.time() - t0:.0f}초  (fold AUC {auc:.5f})",
+                  flush=True)
+
+    return pd.read_csv(out_path) if out_path.exists() else pd.DataFrame()
+
+
+def summarize_full_repeats(df: pd.DataFrame) -> pd.DataFrame:
+    """K회 반복을 (재투자가정 × 랭킹기준)별로 요약한다.
+
+    `τ*`는 **중앙값**이 최종 확정값이다(#18) — 분포가 비대칭이고, "가장 좋았던 seed의 τ*"를
+    고르면 분할 운을 성과로 착각한다(승자의 저주).
+    """
+    g = df.groupby(["reinvest", "criterion"])
+    out = pd.DataFrame({
+        "K": g.size(),
+        "tau_median": g["threshold"].median(),
+        "tau_sd": g["threshold"].std(ddof=1),
+        "sharpe_mean": g["sharpe"].mean(),
+        "sharpe_sd": g["sharpe"].std(ddof=1),
+        "sharpe_max": g["sharpe"].max(),
+        "delta_mean": g["delta_sharpe"].mean(),
+        "delta_sd": g["delta_sharpe"].std(ddof=1),
+        "approval_mean": g["approval_rate"].mean(),
+    })
+    out["delta_se"] = out["delta_sd"] / np.sqrt(out["K"])
+    return out.reset_index()
 
 
 def summarize_repeats(repeats: pd.DataFrame) -> pd.DataFrame:
@@ -287,12 +428,65 @@ def summarize_repeats(repeats: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # 파이프라인 조립
 # ---------------------------------------------------------------------------
-def build_validation_scores(seed: int | None = None, verbose: bool = True) -> dict:
+def load_pipeline_data() -> tuple:
+    """원본에서 `(X, y, meta, outcome)`을 한 번 읽는다 — **K=50 반복에서 재사용하기 위한 것**.
+
+    `build_validation_scores()`를 그냥 반복 호출하면 seed마다 1.2GB 원본을 두 번(피처 테이블 +
+    실현수익률 입력) 다시 읽는다. seed당 2분이면 K=50에서 100분이 순수 I/O로 날아간다.
+    데이터는 seed와 무관하므로(분할만 바뀐다) 밖에서 한 번 읽어 넘긴다.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from analysis.realized_return import build_return_inputs
+    from preprocessing.preprocessor import build_feature_table
+
+    X, y, meta = build_feature_table()
+    return X, y, meta, build_return_inputs()
+
+
+#: 파일명에 fold 수를 적지 않던 시절의 실행이 쓴 fold 수. 그때 만들어진
+#: `sharpe_repeat_k50.csv`·`sharpe_repeat_k50_7_3.csv`를 계속 찾을 수 있게 하는 값이다.
+LEGACY_N_FOLDS = 5
+
+
+def repeat_output_path(scheme: str, n_folds: int | None = None) -> Path:
+    """K=50 결과 CSV 경로. **체계·fold마다 다른 파일**이라 서로 덮어쓰지 않는다 (#30·#32).
+
+    `"6_2_2"`는 기존 이름을 유지한다 — 그 파일은 **조기상환 보정 이전**(계약 현금흐름)
+    실행 기록이라 지금 구현으로 다시 만들면 값이 달라진다. 섞어 인용하지 않는다.
+
+    ⚠️ **fold 수를 파일명에 넣는 이유가 재시작 로직 때문이다.** `repeat_full_search()`는
+    이미 있는 `(seed, reinvest, criterion)`을 건너뛰는데, fold 수는 그 키에 없다. 파일명이
+    같으면 5-fold로 돌린 행을 3-fold 실행이 "이미 계산됨"으로 건너뛰어 **두 fold의 결과가
+    한 파일에 섞인다.** 파일을 가르면 그 사고가 구조적으로 막힌다.
+
+    `LEGACY_N_FOLDS`(5)일 때만 접미사를 붙이지 않는다 — 그 이름으로 이미 만들어진 파일이
+    있기 때문이다. 현행 기본값은 3이므로 `..._8_2_3fold.csv`가 나온다.
+    """
+    if n_folds is None:
+        from analysis.model import DEFAULT_N_FOLDS
+
+        n_folds = DEFAULT_N_FOLDS
+    stem = "sharpe_repeat_k50" if scheme == "6_2_2" else f"sharpe_repeat_k50_{scheme}"
+    if n_folds != LEGACY_N_FOLDS:
+        stem += f"_{n_folds}fold"
+    return repo_root() / "outputs" / f"{stem}.csv"
+
+
+def build_validation_scores(
+    seed: int | None = None,
+    verbose: bool = True,
+    data: tuple | None = None,
+    scheme: str = "6_2_2",
+) -> dict:
     """Train으로 학습·보정하고, Validation 점수를 만들 재료를 모은다.
 
     **모형은 재투자 가정과 무관하다** — 타깃이 이진 `loan_status`라 수익률 정의가 학습에
     개입하지 않는다(#19). 그래서 여기서 한 번만 학습하고, 가정별 계산은
     `scores_for_assumptions()`가 맡는다.
+
+    `data`로 `load_pipeline_data()`의 결과를 넘기면 원본을 다시 읽지 않는다(K=50 반복용).
     """
     import sys
 
@@ -315,14 +509,18 @@ def build_validation_scores(seed: int | None = None, verbose: bool = True) -> di
 
     cfg = load_config()
 
-    X, y, meta = build_feature_table()
+    if data is None:
+        X, y, meta = build_feature_table()
+        outcome = build_return_inputs()
+    else:
+        X, y, meta, outcome = data
     if seed is None:
         # 기준 실행 — 매니페스트 분할을 그대로 쓴다. Test는 잠긴 채로 남는다.
-        parts = split_from_manifest(X, y, meta)
+        parts = split_from_manifest(X, y, meta, scheme=scheme)
         seed = cfg.random_seed.default
     else:
         # K=50 반복 — **Test를 고정한 채** Train+Validation 풀만 재분할한다(#18).
-        parts = resplit_train_validation(X, y, meta, seed=seed)
+        parts = resplit_train_validation(X, y, meta, seed=seed, scheme=scheme)
     X_tr, y_tr, _ = parts["train"]
     X_va, y_va, _ = parts["validation"]
     if verbose:
@@ -342,7 +540,7 @@ def build_validation_scores(seed: int | None = None, verbose: bool = True) -> di
         "p_va_cal": p_va_cal,
         "train_index": X_tr.index,
         "validation_index": X_va.index,
-        "outcome": build_return_inputs(),
+        "outcome": outcome,
         "fold_auc": fold_auc,
         "edges_fn": quantile_edges_by_term,
         "assign_fn": assign_quantile_by_term,
@@ -357,6 +555,17 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
 
     ⚠️ 칸별 통계표(`mu_부도`·`var_부도`)는 **Train에서만** 만들고 Validation에 적용한다.
     Validation 결과를 보고 만들면 누수다. 분위 경계도 재분위하지 않는다(#20).
+
+    ## K=50 반복에서 통계표를 seed마다 다시 만드는가 — **다시 만든다** (잠정)
+
+    #20 구현경로 2가 남긴 미결이었다. 이 함수는 `bundle["train_index"]`에서 통계표를
+    산출하므로, `build_validation_scores(seed=k)`가 `resplit_train_validation()`으로 Train을
+    새로 뽑으면 **통계표도 자동으로 새 Train 기준이 된다.** 이 동작을 잠정 확정으로 둔다.
+
+    근거: 통계표는 "Train에서만 만든다"는 누수 방지 규칙의 산물이다. seed마다 Train이 바뀌는데
+    통계표를 seed 하나로 고정하면, 그 고정된 Train에 **다른 seed의 Validation 행이 섞여 있어**
+    누수가 된다. 계산이 더 들지만(통계표는 `groupby` 하나라 학습 대비 무시할 수준) 규칙과
+    정합적인 쪽을 택한다. → **팀 확정 시 이 문단을 근거로 올린다.**
     """
     import sys
 
@@ -365,6 +574,7 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
         build_excess_returns,
         default_cell_stats,
         expected_excess_return,
+        normal_cell_stats,
         q_score,
         variance_excess_return,
     )
@@ -378,17 +588,28 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
     q_tr = bundle["assign_fn"](bundle["pd_oof_raw"], term_tr, edges)
     q_va = bundle["assign_fn"](bundle["p_va_raw"], term_va, edges)
 
-    stats = default_cell_stats(xr["xr_default"].loc[tr_idx], q_tr, term_tr)
-    mu_map, var_map = stats["mu"].to_dict(), stats["var"].to_dict()
+    def cell_lookup(stat: pd.Series, keys: list) -> pd.Series:
+        m = stat.to_dict()
+        return pd.Series([m.get(k, np.nan) for k in keys], index=va_idx)
+
     keys = list(zip(term_va, q_va))
-    mu_default = pd.Series([mu_map.get(k, np.nan) for k in keys], index=va_idx)
-    var_default = pd.Series([var_map.get(k, np.nan) for k in keys], index=va_idx)
+    d_stats = default_cell_stats(xr["xr_default"].loc[tr_idx], q_tr, term_tr)
+    mu_default = cell_lookup(d_stats["mu"], keys)
+    var_default = cell_lookup(d_stats["var"], keys)
+
+    # 정상상환 칸별 통계표 — **조기상환 보정**과 `var_정상` (#20 B팀 1순위, 2026-07-31)
+    n_stats = normal_cell_stats(
+        xr["xr_normal"].loc[tr_idx], xr["xr_normal_realized"].loc[tr_idx], q_tr, term_tr
+    )
+    prepay_adj = cell_lookup(n_stats["prepay_adj"], keys)
+    var_normal = cell_lookup(n_stats["var"], keys)
 
     # E[XR]·Var[XR]의 p̂는 **보정 후** PD (진단 C-4)
     xr_va = xr.loc[va_idx]
-    e_xr = expected_excess_return(bundle["p_va_cal"], xr_va["xr_normal"], mu_default)
+    xr_normal_adj = xr_va["xr_normal"] - prepay_adj
+    e_xr = expected_excess_return(bundle["p_va_cal"], xr_normal_adj, mu_default)
     v_xr = variance_excess_return(
-        bundle["p_va_cal"], xr_va["xr_normal"], mu_default, var_default, var_normal=0.0
+        bundle["p_va_cal"], xr_normal_adj, mu_default, var_default, var_normal=var_normal
     )
     qs = q_score(e_xr, v_xr)
     realized = xr_va["xr_realized"]
@@ -411,11 +632,74 @@ def scores_for_assumptions(bundle: dict, assumptions) -> tuple[dict, pd.Series, 
     return scores, realized[ok], audit
 
 
+def parse_seed_spec(spec: str) -> list[int]:
+    """`'0-49'` · `'0-9,20'` · `'7'` 형태를 seed 목록으로 푼다."""
+    seeds: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            lo, hi = part.split("-")
+            seeds.extend(range(int(lo), int(hi) + 1))
+        elif part:
+            seeds.append(int(part))
+    return sorted(dict.fromkeys(seeds))
+
+
+def run_repeat(seed_spec: str, scheme: str = "6_2_2") -> None:
+    """`--repeat` 경로 — K회 반복을 돌리고 요약을 출력한다."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from preprocessing.preprocessor import scheme_ratios
+
+    out_path = repeat_output_path(scheme)
+    seeds = parse_seed_spec(seed_spec)
+
+    print("=" * 78)
+    print(f"본 실행 — 분할체계 {scheme} · 재분할 K={len(seeds)}회 "
+          f"(seed {seeds[0]}~{seeds[-1]}) × 랭킹기준 3종 × 재투자가정 2종")
+    print("=" * 78)
+    if scheme_ratios(scheme)[2]:
+        print("Test 20%는 열지 않는다 — Train+Validation 풀만 재분할한다(#18).")
+    else:
+        print("Test는 이 표본 밖(2nd Test 파일)이라 재분할해도 흔들리지 않는다 (#30·#32).")
+    print(f"산출(덧붙임) → {out_path.name}\n")
+
+    df = repeat_full_search(seeds, out_path, scheme=scheme)
+    if df.empty:
+        print("결과가 없다.")
+        return
+
+    print("\n" + "=" * 78)
+    print(f"요약 — τ*는 **중앙값**이 확정값이다 (실제 완료 K는 조합별로 표시)")
+    print("=" * 78)
+    summary = summarize_full_repeats(df)
+    print(summary.to_string(index=False, float_format=lambda v: f"{v: .5f}"))
+
+    summary_path = out_path.with_name(out_path.stem + "_summary.csv")
+    summary.to_csv(summary_path, index=False)
+    print(f"\n요약 산출물 → {summary_path.name}")
+    print("다음 단계: 승자 기준을 확정한 뒤 `final_evaluation.py`로 Test 1회.")
+
+
 def main() -> None:
+    import argparse
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from analysis.realized_return import ReturnAssumptions, cash_reinvestment
+    from preprocessing.preprocessor import SPLIT_SCHEMES
+
+    ap = argparse.ArgumentParser(description="Sharpe threshold 탐색")
+    ap.add_argument("--repeat", metavar="SEEDS", default=None,
+                    help="재분할 반복 실행 (예: '0-49'). 생략하면 매니페스트 분할 1회만 돈다.")
+    ap.add_argument("--scheme", default="6_2_2", choices=sorted(SPLIT_SCHEMES),
+                    help="분할 체계 (기본 6_2_2). 7_3·8_2는 Test를 별도 파일로 둔다 — #30·#32")
+    args = ap.parse_args()
+
+    if args.repeat:
+        run_repeat(args.repeat, scheme=args.scheme)
+        return
 
     out_dir = repo_root() / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -427,7 +711,7 @@ def main() -> None:
     print("   조기상환 보정은 정상상환분 R을 낮추므로 절대 Sharpe는 과대추정이다(#20 B팀 1순위).")
 
     print("\n[모형 학습 — 재투자 가정과 무관하므로 1회만 (#19)]")
-    bundle = build_validation_scores()
+    bundle = build_validation_scores(scheme=args.scheme)
     print(f"  fold AUC 평균 {np.mean(bundle['fold_auc']):.5f}")
 
     treasury = ReturnAssumptions()

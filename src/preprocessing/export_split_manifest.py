@@ -36,46 +36,72 @@
 from __future__ import annotations
 
 import hashlib
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
 
 try:
-    from preprocessing.preprocessor import build_feature_table, split_6_2_2
+    from preprocessing.preprocessor import (
+        DEFAULT_SCHEME, SPLIT_SCHEMES, build_feature_table, scheme_ratios,
+        split_6_2_2, split_train_validation,
+    )
     from utils.config import load_config, repo_root
 except ModuleNotFoundError:  # pragma: no cover
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from preprocessing.preprocessor import build_feature_table, split_6_2_2
+    from preprocessing.preprocessor import (
+        DEFAULT_SCHEME, SPLIT_SCHEMES, build_feature_table, scheme_ratios,
+        split_6_2_2, split_train_validation,
+    )
     from utils.config import load_config, repo_root
 
 
-MANIFEST_STEM = "split_manifest_6_2_2"
+#: 체계별 분할 함수. `"7_3"`(#30)·`"8_2"`(#32)는 Test 칸을 만들지 않는다.
+SPLIT_FUNCTIONS = {
+    "6_2_2": split_6_2_2,
+    "7_3": partial(split_train_validation, scheme="7_3"),
+    "8_2": partial(split_train_validation, scheme="8_2"),
+}
+
+#: 체계별 split 이름 — 출처 카드·요약 출력 순서를 결정한다.
+SPLIT_NAMES = {
+    "6_2_2": ("train", "validation", "test"),
+    "7_3": ("train", "validation"),
+    "8_2": ("train", "validation"),
+}
 
 
-def manifest_path(seed: int) -> Path:
-    """`data/processed/split_manifest_6_2_2_seed42.csv.gz`.
+def manifest_path(seed: int, scheme: str = DEFAULT_SCHEME) -> Path:
+    """`data/processed/split_manifest_6_2_2_seed20260730.csv.gz`.
 
-    seed를 파일명에 남긴다 — 다른 seed로 만든 분할이 같은 파일을 덮어쓰면 어느 것이
-    쓰였는지 추적할 수 없다.
+    seed와 **분할 체계**를 파일명에 남긴다 — 다른 seed·체계로 만든 분할이 같은 파일을
+    덮어쓰면 어느 것이 쓰였는지 추적할 수 없다. `"7_3"`이면 `split_manifest_7_3_seed…`다.
     """
-    return load_config().paths.data_processed / f"{MANIFEST_STEM}_seed{seed}.csv.gz"
+    if scheme not in SPLIT_SCHEMES:
+        raise ValueError(f"알 수 없는 분할 체계: {scheme!r} (가능: {sorted(SPLIT_SCHEMES)})")
+    return load_config().paths.data_processed / f"split_manifest_{scheme}_seed{seed}.csv.gz"
 
 
-def build_manifest(seed: int | None = None) -> tuple[pd.DataFrame, dict]:
+def build_manifest(
+    seed: int | None = None, scheme: str = DEFAULT_SCHEME
+) -> tuple[pd.DataFrame, dict]:
     """`(매니페스트, 요약)`. 매니페스트는 `id`·`split` 두 열이다.
 
     `id`를 문자열로 둔다 — 정수로 캐스팅하면 선행 0이 사라지거나 dtype이 환경마다 달라진다.
+
+    `scheme="7_3"`이면 **Test 칸이 없는** 매니페스트가 나온다 — 최종 Test는 별도 파일
+    (`loader.second_test_path()`)이기 때문이다(#30).
     """
     cfg = load_config()
     seed = cfg.random_seed.default if seed is None else seed
 
     X, y, meta = build_feature_table()
-    parts = split_6_2_2(X, y, meta, seed=seed)
+    parts = SPLIT_FUNCTIONS[scheme](X, y, meta, seed=seed)
 
     rows = []
-    for name in ("train", "validation", "test"):
+    for name in SPLIT_NAMES[scheme]:
         _, y_part, meta_part = parts[name]
         rows.append(
             pd.DataFrame({"id": meta_part["id"].astype(str), "split": name, "target": y_part})
@@ -89,6 +115,7 @@ def build_manifest(seed: int | None = None) -> tuple[pd.DataFrame, dict]:
 
     summary = {
         "seed": seed,
+        "scheme": scheme,
         "n_total": len(manifest),
         "checksum": split_checksum(manifest),
         "shares": (manifest["split"].value_counts(normalize=True) * 100).round(3).to_dict(),
@@ -113,13 +140,56 @@ def write_source_card(path: Path, summary: dict) -> Path:
     card = path.with_suffix("").with_suffix(".source.md")
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     counts, shares, dr = summary["counts"], summary["shares"], summary["default_rate"]
+    scheme = summary.get("scheme", DEFAULT_SCHEME)
+    tr, va, te = scheme_ratios(scheme)
+
+    if not te:
+        # Test 칸이 없는 체계 — `"7_3"`(#30) · `"8_2"`(#32). 비율은 scheme_ratios에서 오므로
+        # 체계를 늘려도 이 분기를 고치지 않는다.
+        label = scheme.replace("_", ":")
+        issue = "#32" if scheme == "8_2" else "#30"
+        title = f"**Train/Validation {label} 분할 정의**"
+        how = (
+            f"- 비율: train {tr} / validation {va} — **Test 칸이 없다**\n"
+            "- 방법: `train_test_split` 한 번. `stratify`를 건다(부도율 16.2%).\n"
+            "- **최종 Test는 별도 파일**이다 — `data/raw/lending_club_2020_test_2nd.csv`\n"
+            f"  (481,833건, train 원본과 `id` 교집합 0건). `decision_log.md` {issue}."
+        )
+        test_note = (
+            "## ⚠️ Test 취급\n"
+            "- 이 매니페스트에는 **Test 칸이 없다.** `unlock_test=True`를 주면 예외가 난다.\n"
+            "- 최종 평가는 `loader.second_test_path()`의 2nd Test로 **단 1회** 한다.\n"
+            f"- K=50 반복은 `resplit_train_validation(..., scheme=\"{scheme}\")`을 쓴다 —\n"
+            f"  표본 전량을 {tr:.0%}/{va:.0%}로 다시 가르며, Test는 애초에 이 표본 밖이라\n"
+            "  흔들리지 않는다."
+        )
+    else:
+        title = "**Train/Validation/Test 6:2:2 분할 정의**"
+        how = (
+            f"- 비율: `config/config.yaml`의 `split` (train {tr} / validation {va} / test {te})\n"
+            "- 방법: `train_test_split`을 두 번 — 전체를 80/20으로 갈라 Test를 떼고, 남은 80%를\n"
+            "  75/25로 Train/Validation으로 나눈다. 두 단계 모두 `stratify`를 건다(부도율 16.2%)."
+        )
+        test_note = (
+            "## ⚠️ Test 취급\n"
+            "- **Test는 기본적으로 반환되지 않는다.** `split_from_manifest(..., unlock_test=True)`로\n"
+            "  명시해야 나오고, 그때 경고를 출력한다.\n"
+            "- Test는 **모형·threshold가 전부 확정된 뒤 단 1회** 적용한다\n"
+            "  (`src/analysis/AGENTS.md` \"Test set으로 모형을 재조정하지 않는다\").\n"
+            "- 랭킹 기준 3종 비교처럼 **여러 안을 고르는 작업에 Test를 쓰면 규칙 위반**이다 —\n"
+            "  그 비교는 Validation에서 끝낸다."
+        )
+    rows = "\n".join(
+        f"| {n} | {counts.get(n, 0):,} | {shares.get(n, 0)} | {dr.get(n, 0)} |"
+        for n in SPLIT_NAMES[scheme]
+    )
 
     card.write_text(
         f"""# {path.name} — 출처 카드
 
 ## 무엇인가
 Lending Club 분석 표본 **{summary['n_total']:,}건**(`decision_log.md` #16)의
-**Train/Validation/Test 6:2:2 분할 정의**다. `id`와 `split`, 그리고 대조용 `target`을 담는다.
+{title}다. `id`와 `split`, 그리고 대조용 `target`을 담는다.
 
 ## 왜 있는가
 seed만 공유하면 분할이 재현되지 않을 수 있다 — `train_test_split`은 **행의 위치**를 셔플하므로
@@ -127,43 +197,33 @@ seed만 공유하면 분할이 재현되지 않을 수 있다 — `train_test_sp
 어긋난다.** 이 파일은 `id` 기준이라 행 순서·라이브러리 버전과 무관하다.
 
 ## 어떻게 만들었나
-- 생성 스크립트: `src/preprocessing/export_split_manifest.py`
+- 생성 스크립트: `src/preprocessing/export_split_manifest.py --scheme {scheme}`
 - seed: **{summary['seed']}** (`config/config.yaml`의 `random_seed.default`)
-- 비율: `config/config.yaml`의 `split` (train 0.6 / validation 0.2 / test 0.2)
-- 방법: `train_test_split`을 두 번 — 전체를 80/20으로 갈라 Test를 떼고, 남은 80%를 75/25로
-  Train/Validation으로 나눈다. 두 단계 모두 `stratify`를 건다(부도율 16.2%).
+{how}
 - 입력: `data/raw/lending_club_2020_train.csv` → `filter_analysis_sample()` (만기 + 버퍼 6개월)
 
 ## 검증
 | split | 건수 | 비율(%) | 부도율(%) |
 | --- | ---: | ---: | ---: |
-| train | {counts.get('train', 0):,} | {shares.get('train', 0)} | {dr.get('train', 0)} |
-| validation | {counts.get('validation', 0):,} | {shares.get('validation', 0)} | {dr.get('validation', 0)} |
-| test | {counts.get('test', 0):,} | {shares.get('test', 0)} | {dr.get('test', 0)} |
+{rows}
 
 - **분할 체크섬(SHA-256)**: `{summary['checksum']}`
   → 팀원끼리 같은 분할을 쓰는지 이 값으로 대조한다.
-    `python src/preprocessing/export_split_manifest.py --verify`
+    `python src/preprocessing/export_split_manifest.py --scheme {scheme} --verify`
 - 파일 SHA-256: `{sha}`
-- 부도율이 세 split에서 소수점 둘째 자리까지 맞는지 확인한다(`stratify` 정상 동작 근거).
+- 부도율이 {len(SPLIT_NAMES[scheme])}개 split에서 소수점 둘째 자리까지 맞는지 확인한다(`stratify` 정상 동작 근거).
 
 ## 쓰는 법
 ```python
 from preprocessing.preprocessor import build_feature_table, split_from_manifest
 
 X, y, meta = build_feature_table()
-parts = split_from_manifest(X, y, meta)          # train·validation만 돌려준다
+parts = split_from_manifest(X, y, meta, scheme="{scheme}")
 X_tr, y_tr, meta_tr = parts["train"]
 ```
-`split_6_2_2()`(seed 기반)를 직접 쓰지 말고 이 함수를 쓴다.
+`split_6_2_2()`/`split_train_validation()`(seed 기반)를 직접 쓰지 말고 이 함수를 쓴다.
 
-## ⚠️ Test 취급
-- **Test는 기본적으로 반환되지 않는다.** `split_from_manifest(..., unlock_test=True)`로
-  명시해야 나오고, 그때 경고를 출력한다.
-- Test는 **모형·threshold가 전부 확정된 뒤 단 1회** 적용한다
-  (`src/analysis/AGENTS.md` "Test set으로 모형을 재조정하지 않는다").
-- 랭킹 기준 3종 비교처럼 **여러 안을 고르는 작업에 Test를 쓰면 규칙 위반**이다 —
-  그 비교는 Validation에서 끝낸다.
+{test_note}
 """,
         encoding="utf-8",
     )
@@ -185,22 +245,41 @@ def parse_seed_arg(argv: list[str]) -> int | None:
     return int(argv[i + 1])
 
 
+def parse_scheme_arg(argv: list[str]) -> str:
+    """`--scheme 7_3` 형태를 읽는다. 없으면 `"6_2_2"`.
+
+    체계도 파일명에 들어가므로 두 매니페스트가 **서로 덮어쓰지 않는다** (#30).
+    """
+    if "--scheme" not in argv:
+        return DEFAULT_SCHEME
+    i = argv.index("--scheme")
+    if i + 1 >= len(argv):
+        raise SystemExit(f"--scheme 뒤에 값을 적어라. 가능: {sorted(SPLIT_SCHEMES)}")
+    scheme = argv[i + 1]
+    if scheme not in SPLIT_SCHEMES:
+        raise SystemExit(f"알 수 없는 분할 체계: {scheme!r} (가능: {sorted(SPLIT_SCHEMES)})")
+    return scheme
+
+
 def main() -> None:
     import sys
 
     verify_only = "--verify" in sys.argv
     seed = parse_seed_arg(sys.argv)
+    scheme = parse_scheme_arg(sys.argv)
 
     print("표본 구성 중... (원본 1.2GB 로딩 — 수 분 걸린다)")
-    manifest, summary = build_manifest(seed=seed)
+    manifest, summary = build_manifest(seed=seed, scheme=scheme)
 
-    print(f"\n[분할 요약] seed={summary['seed']}  총 {summary['n_total']:,}건")
-    for name in ("train", "validation", "test"):
+    print(f"\n[분할 요약] scheme={scheme}  seed={summary['seed']}  총 {summary['n_total']:,}건")
+    for name in SPLIT_NAMES[scheme]:
         print(f"  {name:11s} {summary['counts'].get(name, 0):>8,}건  "
               f"{summary['shares'].get(name, 0):>7}%  부도율 {summary['default_rate'].get(name, 0)}%")
+    if not scheme_ratios(scheme)[2]:
+        print("  test        (없음)  — 최종 Test는 lending_club_2020_test_2nd.csv (#30·#32)")
     print(f"\n  분할 체크섬 {summary['checksum']}")
 
-    path = manifest_path(summary["seed"])
+    path = manifest_path(summary["seed"], scheme=scheme)
     if verify_only:
         if not path.exists():
             raise SystemExit(f"매니페스트가 없다: {path}\n먼저 --verify 없이 실행해 생성하라.")

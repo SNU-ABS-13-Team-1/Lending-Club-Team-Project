@@ -7,6 +7,7 @@ __pycache__/
 
 # 100MB 제한 초과 — git에 올리지 않음
 data/raw/lending_club_2020_train.csv
+data/raw/lending_club_2020_test_2nd.csv
 
 # 전수(72만 행) 계산 결과 CSV — 대용량이라 git에 두지 않는다.
 # 표본 실행이 전수 결과를 덮어쓰지 않도록 파일명을 *_full / *_sample 로 분리하는 규칙이
@@ -23,6 +24,7 @@ data/processed/excess_return*.csv
 !outputs/realized_return_spec_check_cascade.csv
 !outputs/realized_return_spec_check_R_by_status_term.csv
 !outputs/realized_return_sensitivity.csv
+!outputs/realized_return_excluded_audit.csv
 
 # 팀 공유용 산출물 (PDF 등) — 로컬 전용, git 추적 안 함
 share/
