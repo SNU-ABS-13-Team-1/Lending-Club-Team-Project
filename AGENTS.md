@@ -7,6 +7,8 @@
 > 이 파일이 AI 코딩 도구(Claude Code, Codex, Cursor, Gemini CLI 등)가 참조하는 프로젝트 규칙의 단일 원본이다.
 > `CLAUDE.md`/`GEMINI.md`는 이 파일을 그대로 가리키는 포인터 파일(`@AGENTS.md`)이므로 내용을 이원화하지 말고
 > 이 파일(및 `src/*/AGENTS.md`)만 수정한다.
+> 이 파일은 **300줄 이하**를 유지한다 — 규칙의 존재와 포인터는 여기에, 세부·근거 수치는
+> `src/*/AGENTS.md`와 리포트에 둔다(같은 수치를 두 곳에 적으면 갱신 때마다 두 곳을 고치게 된다).
 
 ## 파이프라인 구조
 `data/raw` → `src/preprocessing` → `data/processed` → `src/analysis` → `src/viz` → `outputs`
@@ -32,7 +34,7 @@
 > 실제로 이 순서가 필요했던 사례: "부도 시 실현수익률"이 문서 4곳에서 어긋나 있었고,
 > `decision_log.md`(-100%)를 기준으로 나머지를 정정했다 (#4 정정 기록, 2026-07-29).
 
-## 현재 진행 단계 (2026-07-29 회의 반영)
+## 현재 진행 단계 (2026-07-31 회의 반영)
 
 코드를 쓰기 전에 **해당 항목이 어느 칸에 있는지** 먼저 확인한다.
 
@@ -52,72 +54,42 @@
 | 재투자 가정 | ✅ **확정 — 잔존기간 매칭 국채** | #18 |
 | **실현수익률 구조** | ✅ **확정 — A′** (부도=PD분위 그룹 평균 / 정상상환=건별 계약 현금흐름) | #20 |
 | └ 2단계 hurdle 회귀 | ✅ **확정 — 기각** (2단계 회귀 모델 안 만든다) | #20 |
-| └ 조기상환 보정 방식 | ❌ **미확정** — B팀 1순위 | #20 |
-| └ 국채 금리 ⓐ실제경로/ⓑ상수/ⓒ발행시점 고정 | ❌ 미확정 (ⓒ 권고, 잠정 진행 가능) | #18·#20 |
-| └ 서비스수수료(~1%) 반영 | ❌ 미확정 (잠정 0%로 진행 가능) | #20 |
-| 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ⏳ **근거 확보 — 팀 확정 대기** (`q_score` 우세) | #5·#20 |
-| 확률보정 (isotonic) | ⏳ **구현·검증 완료 — 팀 확정 대기** | C-4 |
+| └ 조기상환 보정 방식 | ✅ **확정 — 건별 실현 현금흐름 반영** (B팀 명세 재현) | #22 ③ |
+| └ 국채 금리 기준 | ✅ **확정 — ⓒ발행시점 고정 + 역할 3분리** (`rf`·계약분·실현분 각각 다름) | #22 ① |
+| └ 서비스수수료(~1%) 반영 | ✅ **확정 — 0% 미반영** (보고서 한계에 명시) | #22 ② |
+| 승인선 랭킹 기준 (`pd` / `E[XR]` / `q_score`) | ✅ **확정 — `q_score`** | #21 ① |
+| 확률보정 (isotonic) | ✅ **확정 — 채택** (보정 전/후 PD 역할 분리) | #21 ② |
+| 피처에서 `zip_code` 제외 | ✅ **확정 — 제외한다** (짝지은 검증 24/24 우세, Δ Sharpe +0.0122) | #21 ③ |
+| 최종 모형 선택 규칙 | ✅ **확정 — K=50 중 Validation Sharpe 최고 모델** (`median_tau` 병기) | #21 ④ |
+| 분할 8:2 + 2nd Test·OOF 3-fold | ✅ **확정** (Test 재추출 기각, K=50 유지) | #21 ⑥·#23 |
+| 모형 후보 제출 규격 (CV 평균±sd·OOF PD) | ✅ **확정 — 승인** | #21 ⑦ |
 | 시각화 규칙 | ❌ 미착수 | — |
 
-> **A팀은 미확정 항목을 기다릴 필요가 없다.** 분류 모델의 타깃은 이진 `loan_status`이므로
-> 수익률 정의가 학습에 개입하지 않는다 — 정의는 threshold·Sharpe 단계에서만 들어온다(#19).
-> 단, 손실값은 **주입받는 형태**로 구현해야 확정 시 재학습 없이 threshold만 다시 탐색할 수 있다.
+> **2026-07-31 회의로 방법론 미확정이 전부 소진됐다**(#21~#24). 남은 미착수는 시각화 규칙뿐이다.
+> 손실값·가정을 **주입받는 형태**로 짜는 구조(#19)는 유지한다 — 가정 변경 시 재학습 없이 재계산한다.
 
-### 실현수익률 — **구조는 확정(A′), 세부 3건 미확정** (B팀 담당)
+### 실현수익률 — **전부 확정** (구조 A′ + 세부 3건, 2026-07-31)
 
-프로젝트 결과(Sharpe·최적 threshold)를 가장 크게 좌우하는 항목이다.
-2026-07-29에 재투자 가정, 2026-07-30에 **구조**가 확정됐고 계산 세부 3건이 남았다.
+프로젝트 결과(Sharpe·최적 threshold)를 가장 크게 좌우하는 항목이다. **규칙 전문·공식·근거 수치는
+`src/analysis/AGENTS.md`와 `decision_log.md` #18·#20·#22에 있다** — 여기서는 결정과 원칙만 적는다.
 
-**확정된 것 ① — 구조 A′** (`decision_log.md` #20, 2026-07-30)
-
-```
-E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
-                  ↑ 건별, 모델 불필요        ↑ 그룹 평균 (PD 분위 × term)
-```
-
-- **부도분은 PD 분위별 그룹 평균**을 쓴다 (참고논문 방식, #4).
-- **정상상환분은 그룹 평균을 쓰지 않는다** — `int_rate`·`term`·`installment`·발행시점 국채곡선으로
-  **건별 계약 현금흐름을 직접 계산**한다. 정상상환 수익률은 승인 시점에 거의 결정론적인데
-  (불확실한 건 조기상환 시점뿐), 부도 손실은 데이터에 없는 요인이 지배하기 때문이다 — **알 수 있는 쪽을
-  그룹 평균으로 뭉개지 않는다.**
-- **구조 B(2단계 hurdle 건별 회귀)는 기각됐다. 2단계 회귀 모델은 만들지 않는다.**
-  따라서 `decision_log.md` #5 정리 2·#6·#7의 2단계 관련 내용은 **기각된 대안의 검토 기록**이다.
-- `int_rate`는 **피처로도 쓰고**(#17 ③) **정상상환분 현금흐름 계산에도 쓴다**. "수익률로 그대로
-  쓰지 않는다"(#18)와 모순이 아니다 — 계약 현금흐름을 만드는 입력이다.
-
-**확정된 것 ② — 재투자 가정** (`decision_log.md` #18)
-
-- 매달 받는 상환액을 **잔존기간에 맞춘 국채**에 재투자한다고 가정한다. 현금 보유(0%)가 아니다.
-  `R = (W/P)^(12/T) − 1`, `W = Σ CFₘ·F(m,T)`. `m`월 수령액은 잔존기간 `T−m` 만기의 국채로 굴린다.
-- **정상상환·부도 양쪽에 동일 적용**한다. 따라서 **"정상상환은 `int_rate` 그대로"(#4 결정 1)는 폐기**됐다 —
-  `int_rate`는 재투자율 12.6%를 뜻해 부도 쪽(국채)과 관례가 어긋난다.
-- ⚠️ 이 가정은 `R`을 **무조건 올린다**(평균 +107.5bp). 다만 편의를 추가하는 게 아니라 0% 관례의
-  이중 부과를 제거하는 것이다 — 무위험 등가 대출의 초과수익이 0% 재투자에서 **−0.96%p**,
-  국채 재투자에서 **+0.000%** 로 나온다. **절대 Sharpe가 아니라 Δ Sharpe(모형 − approve-all)를
-  헤드라인으로 보고**하고, 0% 재투자 결과를 민감도로 병기한다.
-
-**미확정 — 계산 세부 3건** (전부 **잠정값으로 진행 가능**, A팀 작업을 막지 않는다)
-
-- ⚠️ **조기상환 보정 (B팀 1순위, #20)**: "계약 현금흐름"은 만기까지 납입한다는 뜻이므로 조기상환을
-  반영하지 않으면 **정상상환분 `R`이 과대추정된다.** 국채 재투자 가정 아래서 조기상환은 `R`을 **낮춘다**
-  — 12% 대출을 12개월에 조기 회수하면 남은 24개월을 국채(약 2%)로 굴려야 한다.
-  - **권고**: 칸별 `(실현 R − 계약 R)` 평균을 보정항으로 더한다. 정상상환분의 **분산도 이 산포에서 나온다**
-    (계약 현금흐름만 쓰면 분산이 0이 되어 `q_score` 분모가 부도 항만 반영한다).
-  - **먼저 실측할 것**: 정상상환 건의 `실현 R − 계약 R` 분포(평균·표준편차·term별).
-- **국채 금리 기준**: ⓐ실제 경로 / ⓑ고정 상수 / **ⓒ발행시점 고정(권고 — 잠정값으로 사용)**.
-- 투자자 서비스수수료(~1%) 반영 방식 (**잠정 0%**).
-- **판단 재료**: 실측 회수율은 Charged Off 217,366건 평균 **-45.19%**(중앙값 -49.00%)로,
-  옛 베이스라인 -100%는 부도손실을 크게 과대평가한다.
-- **코드 작성 지침**: 손실값을 상수로 박지 말고 **주입받는 형태**로 짠다. A팀은 이 세부를 기다리지 않고
-  분류 모델을 먼저 만들 수 있다 — 타깃이 이진 `loan_status`라 정의가 학습에 개입하지 않는다(#19).
-  잠정값으로 파이프라인을 완성하고 산출물에 `잠정(provisional)` 표기를 남기면, 확정 시
-  **통계표와 threshold만 재계산**하면 된다(모형 재학습 불필요).
-- ⚠️ **재투자 가정 스위치(국채 / 0%)는 칸별 통계표까지 다시 만든다.** `mu`·`var`가 `XR`에서 산출되므로
-  #18이 말한 "계산 스위치 하나"로 끝나지 않는다 — 산출물 파일명·컬럼에 어느 가정인지 남긴다.
-- ⚠️ 옛 문서의 **"부도 시 0"** 은 **회수액이 0**이라는 뜻이다. 수익률로는 **-100%**이며,
-  수익률 0%(= 원금 전액 회수, 이자만 손실)와는 전혀 다른 가정이다.
-  이 혼동이 문서 4곳에 퍼져 있어 2026-07-29에 -100%로 통일했다(#4 정정 기록).
-  `docs/references/legacy-*`에는 옛 표기가 그대로 남아 있다 — 과거 원문이라 보존한 것이다.
+- **확정 ① 구조 A′**(#20): 부도분 = PD분위 × term **그룹 평균**, 정상상환분 = `int_rate`·`term`·
+  `installment`·발행시점 국채곡선으로 **건별 계약 현금흐름**을 직접 계산 — 알 수 있는 쪽을 그룹
+  평균으로 뭉개지 않는다. **구조 B(2단계 hurdle 회귀)는 기각** — #5 정리 2·#6·#7의 2단계 내용은
+  기각된 대안의 검토 기록이다. `int_rate`는 피처(#17 ③)이자 현금흐름 입력이다(#18과 모순 아님).
+- **확정 ② 재투자 가정**(#18): 매달 상환액을 **잔존기간 매칭 국채**에 재투자한다(0% 아님). 정상·부도
+  **동일 적용** — "정상상환은 `int_rate` 그대로"(#4)는 폐기됐다. 이 가정은 `R`을 평균 +107.5bp
+  올리므로 **헤드라인은 Δ Sharpe(모형 − approve-all)** 로 보고하고 0% 재투자를 민감도로 병기한다.
+- **확정 ③ 세부 3건**(#22 — 옛 "미확정 3건"): ① 조기상환 = **건별 실현 현금흐름 반영**
+  (보정폭 36m +1.06%p / 60m +2.24%p, `var_정상` 칸별 추정) ② 국채 금리 = **ⓒ발행시점 고정** —
+  단 **역할 3분리**(`rf`=GS3/GS5 · 계약분 재투자=ⓒ · 실현분 재투자·역할인=GS1M 실제경로, #22 표)
+  ③ 서비스수수료 = **0% 미반영**. 실측 회수율은 Charged Off 평균 **-45.19%**로, 옛 베이스라인
+  -100%는 부도손실을 크게 과대평가한다.
+- **코드 지침**: 손실값·가정을 상수로 박지 말고 **주입받는 형태**(`ReturnAssumptions`)로 짠다.
+  가정을 바꾸면 통계표·threshold만 재계산하면 되고 **모형 재학습은 불필요**하다(#19). 단, **재투자
+  가정 스위치(국채/0%)는 칸별 통계표까지 다시 만든다** — 산출물 파일명에 가정 라벨이 붙는 이유다(#18·#20).
+- ⚠️ 옛 문서의 **"부도 시 0"** 은 회수액 0 = 수익률 **-100%**라는 뜻이다(수익률 0% ≠ -100%).
+  2026-07-29에 -100%로 통일했고(#4 정정 기록), `docs/references/legacy-*`에는 옛 표기가 보존돼 있다.
 
 ## 실행 환경
 
@@ -134,7 +106,8 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 
 | 파일 | 행 | 컬럼 | 용도 |
 | --- | ---: | ---: | --- |
-| `data/raw/lending_club_2020_train.csv` | 1,755,295 | 141 | **본 분석의 유일한 입력.** 1.2GB, git 미추적 — 팀 공유 채널에서 받는다 |
+| `data/raw/lending_club_2020_train.csv` | 1,755,295 | 141 | **학습·1차 평가의 입력.** 1.2GB, git 미추적 — 팀 공유 채널에서 받는다 |
+| `data/raw/lending_club_2020_test_2nd.csv` | 1,170,198 | 141 | **2nd Test(최종 외부 평가) 전용** — 필터 통과 481,833건(#23). 학습·탐색에 쓰면 규칙 위반 |
 | `data/processed/lending_club_2020_train_sample_9000.csv` | 9,000 | 141 | 위 파일의 표본. **분석에 쓰지 않는다** — 과거 산출물 재현용으로만 남긴다 |
 | `data/raw/lending_club.csv` | 10,000 | 11 | 조교님 실습용 축약본 — 본 분석에 쓰지 않는다 |
 | `data/raw/LCDataDictionary.xlsx` | — | — | LC 공식 데이터 사전(원본). 팀 라벨은 `variable_dictionary_byGJ.xlsx` 쪽을 본다 |
@@ -195,6 +168,17 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | **B팀 핸드오프 — 실현수익률 계산** (산출물 3종·1순위 조기상환 보정·작업 0/7~10) | `handoff_teamb_realized_return.md` |
 | **OOF 파이프라인 진단 4종** (`q_score` 채택 근거·A′ 건별 계산 실효성·분위 경계 이전·**확률보정**) | `oof_diagnostics_kgj.md` |
 | **Sharpe threshold 탐색** (랭킹 기준 3종 비교·Δ의 재투자 가정 안정성·절대 Sharpe 병기 근거) | `sharpe_threshold_kgj.md` |
+| **PD 모형 후보 교차검증** (팀원 3인 스펙 6종 비교·**`zip_code` 제외 제안**·후보 제출 규격안) | `model_comparison_kgj.md` |
+| **실현수익률 개정안** (이슈 #23 — **부분 채택**: 현금흐름 재구성·역할인 채택, decision #22 ③) | `realized_return_treasury_reinvestment_methodology.md` |
+| **초과수익 선별 개정안** (이슈 #23 — **등가중 헤드라인+금액가중 병기·재추출 기각**, decision #23) | `excess_return_sharpe_selection_methodology.md` |
+| **#23 개정안 교차검토** (일치 6·채택권고 3·팀결정 3 — **회의 처리 완료**, decision #22~#23) | `methodology_23_review_kgj.md` |
+| 국채 GS1M 수집 기록 (재투자·역할인 계수용 — **`rf`가 아니다**) | `treasury_gs1m.md` |
+| **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
+| **최종 결과 — 8:2 K=50·2nd Test** (이슈 #32 — **최종 수치 단일 원본**: Δ Sharpe +0.0893·승자 seed 26·그림 6종) | `final_result_kgj.md` |
+| **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용. PDF판은 `share/`에 코드 전문 포함 204쪽) | `final_report.md` |
+
+> 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다(decision #22 ③·#23) — 안건 A 부분 채택 ·
+> B 등가중 헤드라인+금액가중 병기 · C(Test 재추출) 기각. **채택된 항목만 구현 근거로 쓴다.**
 
 > 파일명 끝의 이니셜(`_kgj` 등)은 **작성자 표기**다 — 같은 주제를 팀원별로 각자 검증한
 > 문서가 여러 개 존재할 수 있다 (`docs/GIT_CONVENTION.md`의 파일명 규칙).
@@ -206,9 +190,12 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 파일 | 내용 |
 | --- | --- |
 | `lending_club_2020_train_sample_9000.csv` | 대출 표본 9,000건 — **분석에 쓰지 않음**(과거 산출물 재현용) |
-| `split_manifest_6_2_2_seed42.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다 |
+| `split_manifest_6_2_2_seed20260730.csv.gz` | **6:2:2 분할 정의**(`id`→split, 2.35MB, **현행** — seed는 `config.yaml`이 결정). 원본이 git에 없어도 팀원 전원이 동일 분할을 쓰게 하는 단일 원본 — `split_from_manifest()`로 읽는다. 옛 `…seed42` 파일은 보존만 하고 쓰지 않는다 |
+| `split_manifest_7_3_seed20260730.csv.gz` · `split_manifest_8_2_seed20260730.csv.gz` | **7:3·8:2 분할 정의**(#30·이슈 #32) — Test 칸이 없다(최종 평가는 2nd Test 파일, decision #23). 8:2가 현행 체계다 |
+| `shared/` (parquet 4종 + `columns.json` + `README_공유데이터.md`) | **팀 공유용 전처리 데이터셋**(git 미추적, 71.7MB) — `export_shared_dataset.py`가 생성, `load_shared()`로 읽는다. **사후변수는 `*_outcome.parquet`로 분리**(피처에 합치면 누수). CSV 변환 금지(category dtype 깨짐) |
 | `variable_dictionary_byGJ.xlsx` | 변수 사전 + 사전/사후 라벨 (**단일 원본**) |
-| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
+| `us_treasury_GS3_GS5_monthly_*.csv` | 무위험수익률 `rf` (Sharpe용, 독립변수 아님) — **출처 카드 없음** |
+| `us_treasury_GS1M_monthly_*.csv` | 1개월 국채 — **실현 현금흐름 재투자·역할인 계수 전용(#22 ①), `rf`가 아니다.** 출처 카드 있음 |
 | `macro_*_monthly_*.csv` | 거시경제지표 (독립변수 후보) |
 | `*.source.md` | **출처 카드** — 짝이 되는 데이터 파일의 출처·체크섬·검증법 |
 
@@ -226,8 +213,10 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | 위치 | 내용 | 상태 |
 | --- | --- | --- |
 | `src/preprocessing/fetch_macro_*.py` (4개) | 거시지표 수집 (다운로드+검증+저장) | 동작 |
+| `src/preprocessing/fetch_treasury_gs1m.py` | GS1M 수집 (실현 현금흐름 재투자·역할인 계수, #22 ①) | 동작 |
 | `src/preprocessing/label_pre_post_by_rule.py` | 규칙 기반 사전/사후 라벨링 | 동작 |
 | `src/preprocessing/export_split_manifest.py` | **6:2:2 분할 매니페스트** 생성·체크섬 대조(`--verify`) | 동작 |
+| `src/preprocessing/export_shared_dataset.py` | 팀 공유 parquet 내보내기 + 읽기 진입점 `load_shared()`/`load_shared_outcome()` | 동작 |
 
 **② 재현·검증** — 문서에 실린 표를 다시 만든다. 문서 수치를 의심할 때 여기부터 돌린다
 
@@ -240,18 +229,20 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/analysis/missing_scheme_comparison.py` | `preprocessing_crosscheck_kgj.md` (#13 ③) | `outputs/missing_scheme_comparison.csv` |
 | `src/analysis/realized_return_spec_check.py` | `decision_log.md` #20 · 이슈 #15 (탈락 캐스케이드·계산 가능 건수) | `outputs/realized_return_spec_check_cascade.csv`, `outputs/realized_return_spec_check_R_by_status_term.csv` |
 | `src/analysis/realized_return_sensitivity.py` | `decision_log.md` #18 (**재투자 가정 +107.5bp**) | `outputs/realized_return_sensitivity.csv` |
+| `src/analysis/excluded_audit.py` | `final_report.md` 6.1 · `decision_log.md` #24 ⑤ (계산 제외 건 감사 — train 1,210·2nd Test 836 전건 사유 집계) | `outputs/realized_return_excluded_audit.csv` |
 | `src/analysis/auc_sample_filter_comparison.py` | `oof_diagnostics_kgj.md` (**AUC 0.71대 = #16 필터 이전 값**) | `outputs/auc_sample_filter_comparison.csv` |
+| `src/analysis/model_comparison.py` (`--only` 6블록) | `model_comparison_kgj.md` (**팀원 3인 스펙 비교·`zip_code` 근거**) | `outputs/model_comparison_*.csv` (8종) |
 
-> 이들은 **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않고 자체 2분할·자체 seed 루프를 쓴다(의도된 차이).
-> AUC를 쓰지만 **승인/거절 기준을 정하는 데 쓰지 않으므로** Sharpe 규칙과 충돌하지 않는다.
-> ⚠️ 이 스크립트들이 내는 AUC(0.68대)는 LC 조건변수를 뺀 Lean 스펙 값 — **최종 모형 성능으로 인용 금지**(#13 ⑤).
-> 대부분 `data/raw/lending_club_2020_train.csv`(1.2GB, git 미추적)를 입력으로 받으며 실행에 수 분~수십 분 걸린다.
->
-> ⚠️ 실현수익률 2종은 AUC를 쓰지 않는다(모형 학습 없음, pandas/numpy만). `realized_return_sensitivity.py`의
-> `realized_return()`은 **실측 현금흐름 기준으로 #18 재투자 가정을 검증한** 구현이다(민감도 표 재현 전용).
-> **본 파이프라인의 구현은 `src/analysis/realized_return.py`** 로, 계약 `R`(`contract_return()`)과
-> 부도 실현 `R`(`realized_return_defaulted()`)을 모두 담는다 — B팀 작업의 출발점은 이쪽이다
-> (`outputs/reports/handoff_teamb_realized_return.md`).
+> ⚠️ **예외 — `model_comparison.py`는 `config.yaml`의 매니페스트 분할을 쓴다.** 비교 질문이
+> "팀 표준 분할에서 어느 스펙이 나은가"이므로 자체 분할을 쓰면 질문이 달라진다. Test는 열지 않는다.
+> `--only stability`는 수십 분~수 시간이라 기본 실행에서 빠져 있고, 증분 저장·재시작을 지원한다.
+
+> **탐색·검증용**이라 `config.yaml`의 6:2:2를 따르지 않는다(자체 분할·자체 seed — 의도된 차이.
+> 성격 구분 상세는 `src/analysis/AGENTS.md`). AUC는 상대 비교 전용이며, 여기서 나오는 0.68대는
+> Lean 스펙 값 — **최종 모형 성능으로 인용 금지**(#13 ⑤). 대부분 1.2GB 원본을 읽어 수 분~수십 분 걸린다.
+> 실현수익률 2종은 모형 학습이 없고, `realized_return_sensitivity.py`는 #18 재투자 가정 검증 전용이다.
+> **본 파이프라인의 실현수익률 구현은 `src/analysis/realized_return.py`** — B팀 작업의 출발점은
+> 이쪽이다 (`outputs/reports/handoff_teamb_realized_return.md`).
 
 **③ 본 파이프라인** — 여기에 "규칙"이 그대로 적용된다
 
@@ -260,37 +251,20 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/preprocessing/loader.py` | 원본 로딩·표본 필터(**723,563건 검증 내장**)·피처 컬럼 선택 | 동작 |
 | `src/preprocessing/preprocessor.py` | dtype 정리(문자열 수치 복원)·랜덤 6:2:2 층화분할 | 동작 |
 | `src/analysis/model.py` | XGBoost PD 모형·K-fold OOF·**isotonic 확률보정**·PD 분위 경계 | 동작 |
-| `src/analysis/realized_return.py` | 구조 A′ 실현수익률·`E[XR]`·`Var[XR]`·`q_score` | 동작 (**잠정 가정**) |
+| `src/analysis/realized_return.py` | 구조 A′ 실현수익률·`E[XR]`·`Var[XR]`·`q_score` (#22 확정 가정) | 동작 |
+| `src/analysis/realized_return_cashflow.py` | **건별 실현 현금흐름** — B팀 명세 재현(조기상환·GS1M 재투자·역할인, `verify_against_teamb()`) | 동작 |
 | `src/analysis/oof_diagnostics.py` | 진단 C-1/C-2/C-3/**C-4** — 설계 선택 실측 검증 | 동작 |
-| `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교 | 동작 |
+| `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 3종 비교·**K=50 본실행**(`--repeat 0-49`) | 동작 |
+| `src/analysis/final_evaluation.py` | **Test 1회 평가** — 이긴 모델 재현·고정 τ* 적용·최종 Sharpe 확정 | 동작 |
+| `src/analysis/second_test_evaluation.py` | **2nd Test 외부 표본 평가** — 승자 모델·τ* 고정 적용(decision #23) | 동작 |
 | `src/viz/plots.py` | 차트 생성 | **뼈대(TODO)** |
 
-> ⚠️ `realized_return.py`는 미확정 3건을 **잠정값**으로 고정한다 — 국채 ⓒ발행시점 고정 ·
-> 수수료 0% · **조기상환 보정 0**. 보정이 0이라 정상상환분 `R`이 과대추정되고 `var_정상 = 0`이
-> 된다(#20 B팀 1순위). 가정은 전부 `ReturnAssumptions`로 **주입받으므로** 확정 시
-> 칸별 통계표와 threshold만 재계산하면 되고 **모형 재학습은 불필요**하다(#19·#20).
-> 산출물 파일명에 `ReturnAssumptions.label()`이 붙어 어느 가정인지 추적된다.
->
-> ⚠️ **PD에는 두 역할이 있고 서로 다른 값을 쓴다** (진단 C-4, 2026-07-30 실측):
-> **분위 경계·배정과 승인선 점수는 보정 전 PD**, **`E[XR]`·`Var[XR]`의 `p̂`만 isotonic 보정 후 PD**다.
-> 보정은 Validation ECE를 0.710 → 0.265%p로 줄이지만(AUC는 −0.00004), 계단함수라 고유값이
-> 42.8만 → 125개로 뭉쳐서 **보정된 PD로 분위를 자르면 칸 인원이 최대 3.13%p 기운다.**
-> ⚠️ `decision_log.md` 「부수 결정」의 *"isotonic은 단조변환이라 분위 경계가 바뀌지 않는다"* 는
-> **틀렸다** — 정정이 필요하다(팀 확인 후).
->
-> `oof_diagnostics.py`의 산출물 5종(진단 근거는 `oof_diagnostics_kgj.md`):
-> `outputs/oof_c1_cell_means_{label}.csv`(칸별 `pd`·`xr_normal`·`E[XR]`·`q_score`·`int_rate`) ·
-> `outputs/oof_c2_int_rate_dispersion.csv`(칸별 금리 산포) ·
-> `outputs/oof_c3_quantile_share.csv`(Train/Validation 분위 인원 비율) ·
-> `outputs/oof_c4_calibration.csv`(보정 전/후 지표·ECE 바닥값·칸 균형) ·
-> `outputs/oof_default_cell_stats_{label}.csv`(칸별 `mu_부도`·`var_부도`).
->
-> `sharpe_optimizer.py`의 산출물(근거는 `sharpe_threshold_kgj.md`):
-> `outputs/sharpe_threshold_comparison.csv` — 랭킹 기준 3종 + approve-all × 재투자 가정 2종의
-> `τ*`·승인율·**절대 Sharpe**·Δ Sharpe. 실측은 `q_score`(Sharpe 0.279 · Δ +0.059)를 지지하나
-> **랭킹 기준 확정은 팀 결정**이다(#5·#20).
-> `{label}`은 `ReturnAssumptions.label()`이며 현재는 `provisional_treasury_issue_fixed_fee0pct`다 —
-> **재투자 가정을 바꾸면 파일명이 바뀐다**(#18, 통계표까지 다시 만들어야 하므로 의도된 설계).
+> ⚠️ `realized_return.py`의 가정(국채 ⓒ · 수수료 0% · 조기상환 cashflow 반영)은 #22로 전부
+> 확정됐고, 여전히 `ReturnAssumptions`로 **주입받는다** — 산출물 파일명에 `label()`이 붙어 어느
+> 가정인지 추적된다(`provisional` 라벨은 기존 산출물 연속성 위해 유지). 목록은 `src/analysis/AGENTS.md`.
+> ⚠️ **PD에는 두 역할이 있고 서로 다른 값을 쓴다**(#21 ②·진단 C-4): 분위 경계·배정과 승인선 점수는
+> **보정 전** PD, `E[XR]`·`Var[XR]`의 `p̂`만 isotonic **보정 후** PD. 근거 수치는
+> `src/analysis/AGENTS.md`와 `oof_diagnostics_kgj.md`·`sharpe_threshold_kgj.md`에 있다.
 
 **공통 유틸**
 
@@ -299,16 +273,12 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | `src/utils/config.py` | `config.yaml` 로더 (경로·분할·seed 단일 출처) | 동작 |
 | `src/utils/logger.py` | 공통 로깅 | 동작 (**현재 아무도 쓰지 않음**) |
 
-> 남은 뼈대 파일은 팀이 방법론을 확정하기 전이라 의도적으로 비워둔 것이다.
-> 채우기 전에 `decision_log.md`에서 해당 항목이 확정됐는지 — 그리고 위 "현재 진행 단계"에서
-> **조건부 확정이 아닌지** — 먼저 확인한다.
->
-> ⚠️ **변수 사전의 `is_pre_approval`이 확정 사항과 어긋나 있다.** 시트는 `grade`·`sub_grade`를
-> 미라벨(NaN)로, `int_rate`·`installment`·`funded_amnt`·`funded_amnt_inv`·`issue_d`·
-> `initial_list_status`를 **사후(0)** 로 두는데, #1이 이 8개를 사전으로 재분류했고 #17 ③이
-> `grade`·`sub_grade`·`int_rate` 투입을 확정했다. 시트를 그대로 믿으면 LC 조건변수가 전부 빠져
-> Lean 스펙이 된다. `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 이를 코드에서 보정하고 있으며,
-> **시트 개정은 열린 실행 항목**이다(`preprocessing_crosscheck_kgj.md` 10절).
+> 남은 뼈대(`plots.py`)는 방법론 확정 전이라 의도적으로 비워둔 것이다. 채우기 전에
+> `decision_log.md`와 위 「현재 진행 단계」에서 확정 여부를 먼저 확인한다.
+> ⚠️ **변수 사전 시트의 `is_pre_approval`이 확정 사항(#1·#17 ③)과 어긋나 있다** — 시트를 그대로
+> 믿으면 LC 조건변수(`grade`·`sub_grade`·`int_rate` 등 8개)가 빠져 Lean 스펙이 된다.
+> `loader.py`의 `PRE_APPROVAL_OVERRIDES`가 코드에서 보정 중이며 **시트 개정은 열린 실행 항목**이다
+> (`preprocessing_crosscheck_kgj.md` 10절).
 
 ### 규격·컨벤션
 
@@ -316,6 +286,7 @@ E[XR_i] = (1 − p̂_i) · XR_계약,i        +  p̂_i · r̄_부도,d(i)
 | --- | --- |
 | `docs/macro_indicators_spec.md` | 외부 데이터 수집 규격 (기간·컬럼·검증·출처 카드) |
 | `docs/GIT_CONVENTION.md` | 브랜치·커밋·PR 규칙, 파일명 이니셜 규칙 |
+| `docs/REPORT_CONVENTION.md` | **제출용 보고서 작성 규칙** — 내부 기록(결정 서사·이슈 번호·논쟁 방어)을 심사자 대상 서술로 번역하는 규칙 7종 + 점검 체크리스트 |
 | `docs/architecture.md` | 파이프라인 구조 (Mermaid) |
 | `config/config.yaml` | 경로·분할 비율·seed 공통 설정 (`src/utils/config.py`로 읽는다) |
 | `requirements.txt` | 실행 환경 버전 고정 |
