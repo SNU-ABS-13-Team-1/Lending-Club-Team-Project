@@ -699,8 +699,10 @@ python src/viz/plots.py
 
 # 부록 C. 전체 구현 코드
 
-전체 구현 코드(총 27개 파일, 8,045줄)는 저장소 `src/` 아래에 있으며, 전문은 별책 부록
-PDF(『최종보고서 별책 — 전체 구현 코드』)에 수록했다. 구성은 다음과 같다.
+전체 구현 코드(총 31개 파일, 8,197줄)는 저장소 `src/` 아래에 있으며, 전문은 별책
+『최종보고서 별책 — 전체 구현 코드』(`outputs/reports/final_report_code_appendix.md`)에 수록했다.
+별책은 `src/utils/export_code_appendix.py`가 `src/`에서 직접 생성하고 `--check`로 대조하므로
+본책과 코드가 어긋나지 않는다. 구성은 다음과 같다.
 
 | 구분 | 파일 | 역할 |
 | --- | --- | --- |
@@ -718,5 +720,5 @@ PDF(『최종보고서 별책 — 전체 구현 코드』)에 수록했다. 구�
 | 분석 — 본 파이프라인 | `src/analysis/sharpe_optimizer.py` | threshold 탐색·랭킹 기준 비교·50회 반복 실행 |
 | 분석 — 본 파이프라인 | `src/analysis/final_evaluation.py` | 선정 모형 재현·고정 τ\* 적용 |
 | 분석 — 본 파이프라인 | `src/analysis/second_test_evaluation.py` | 외부 검증 표본 평가 |
-| 분석 — 재현·검증 | `src/analysis/preprocessing_validation.py` 외 7종 | 보고서 근거 표 재현 스크립트 |
+| 분석 — 재현·검증 | `src/analysis/preprocessing_validation.py` 외 10종 | 보고서 근거 표 재현 스크립트 |
 | 시각화 | `src/viz/plots.py` | 그림 6종 생성 |
