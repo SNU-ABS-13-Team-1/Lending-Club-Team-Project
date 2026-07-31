@@ -699,7 +699,7 @@ python src/viz/plots.py
 
 # 부록 C. 전체 구현 코드
 
-전체 구현 코드(총 31개 파일, 8,197줄)는 저장소 `src/` 아래에 있으며, 전문은 별책
+전체 구현 코드(총 31개 파일, 8,204줄)는 저장소 `src/` 아래에 있으며, 전문은 별책
 『최종보고서 별책 — 전체 구현 코드』(`outputs/reports/final_report_code_appendix.md`)에 수록했다.
 별책은 `src/utils/export_code_appendix.py`가 `src/`에서 직접 생성하고 `--check`로 대조하므로
 본책과 코드가 어긋나지 않는다. 구성은 다음과 같다.
