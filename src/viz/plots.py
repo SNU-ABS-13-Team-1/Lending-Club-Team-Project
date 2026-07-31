@@ -40,7 +40,7 @@ ORANGE = "#eb6834"
 SEQ_LIGHT = "#86b6ef"
 GOOD = "#006300"
 
-ASSUMPTION_CAPTION = "가정: 국채 ⓒ발행시점 고정 · 수수료 0% · 조기상환 현금흐름 반영 (#22) · 등가중 (#23 B)"
+ASSUMPTION_CAPTION = "가정: 국채 발행시점 고정 · 수수료 0% · 조기상환 현금흐름 반영 · 등가중"
 
 mpl.rcParams.update({
     "font.family": ["Apple SD Gothic Neo", "AppleGothic", "sans-serif"],
@@ -66,7 +66,7 @@ mpl.rcParams.update({
     "axes.titlesize": 10,
 })
 
-REINVEST_LABEL = {"treasury": "국채 재투자 (헤드라인)", "cash": "0% 재투자 (민감도)"}
+REINVEST_LABEL = {"treasury": "국채 재투자 (주 보고)", "cash": "0% 재투자 (민감도)"}
 CRITERION_ORDER = ["E[XR]", "pd (보정 전)", "q_score"]  # 아래→위 표시 순서
 
 
@@ -101,7 +101,7 @@ def plot_k50_delta() -> Path:
         ax.set_xlabel("Δ Sharpe (모형 − approve-all)")
         ax.grid(axis="y", visible=False)
         ax.tick_params(axis="y", colors=INK2)
-    fig.suptitle("K=50 재분할에서 랭킹 기준 3종의 Δ Sharpe — q_score 우세 (#21 ①)", x=0.01, ha="left")
+    fig.suptitle("50회 재분할 반복에서 랭킹 기준 3종의 Validation Δ Sharpe 분포", x=0.01, ha="left")
     _caption(fig, f"세로선=중앙값 · 점=재분할 seed 1개 · 8:2+OOF 3-fold · {ASSUMPTION_CAPTION}")
     fig.tight_layout(rect=(0, 0, 1, 0.99))
     out = FIGURES / "fig_k50_delta_8_2_3fold.png"
@@ -125,13 +125,13 @@ def plot_k50_tau() -> Path:
     ax.annotate(f"중앙값 τ = {median_tau:.4f}", (median_tau, ymax * 0.97),
                 ha="right", va="top", fontsize=8, color=INK2, xytext=(-5, 0),
                 textcoords="offset points")
-    ax.annotate(f"승자 seed {int(winner['seed'])}\nτ* = {winner['threshold']:.4f}",
+    ax.annotate(f"선정 모형 seed {int(winner['seed'])}\nτ* = {winner['threshold']:.4f}",
                 (float(winner["threshold"]), ymax * 0.78), ha="left", va="top",
                 fontsize=8, color=INK, xytext=(6, 0), textcoords="offset points")
     ax.set_xlabel("τ* (q_score 승인선, Validation Sharpe 최대점)")
     ax.set_ylabel("seed 수")
     ax.grid(axis="x", visible=False)
-    ax.set_title("K=50 재분할의 τ* 분포 — 승자 τ*가 중앙값 곁에 있다 (#21 ④)")
+    ax.set_title("50회 재분할 반복의 τ* 분포")
     _caption(fig, f"국채 재투자 · q_score · 8:2+OOF 3-fold · {ASSUMPTION_CAPTION}")
     fig.tight_layout()
     out = FIGURES / "fig_k50_tau_8_2_3fold.png"
@@ -167,12 +167,12 @@ def plot_second_test_benchmark() -> Path:
                     ha="center", fontsize=9.5, color=GOOD, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels([REINVEST_LABEL[r] for r in order], color=INK2)
-    ax.set_ylabel("Sharpe (절대값 — 헤드라인은 Δ)")
+    ax.set_ylabel("Sharpe (절대값. 주 성과지표는 Δ)")
     ax.set_ylim(0, max(model) * 1.32)
     ax.grid(axis="x", visible=False)
     ax.legend(frameon=False, fontsize=8, loc="upper left")
-    ax.set_title("2nd Test (외부 481,833건): 모형 vs approve-all")
-    _caption(fig, f"승자 seed 26 · τ*=0.1895 고정 적용(재탐색 없음, #23) · {ASSUMPTION_CAPTION}")
+    ax.set_title("외부 검증 표본(481,833건): 모형 전략과 전부 승인 대조군")
+    _caption(fig, f"선정 모형 seed 26 · τ*=0.1895 고정 적용(재탐색 없음) · {ASSUMPTION_CAPTION}")
     fig.tight_layout()
     out = FIGURES / "fig_2ndtest_benchmark_8_2.png"
     fig.savefig(out)
@@ -192,17 +192,17 @@ def plot_generalization() -> Path:
     rng = np.random.default_rng(1)
     fig, ax = plt.subplots(figsize=(7.0, 2.6))
     ax.scatter(vals, rng.normal(0, 0.05, len(vals)), s=16, color=MUTED, alpha=0.6,
-               linewidths=0, zorder=3, label="Validation Δ (K=50 재분할)")
+               linewidths=0, zorder=3, label="Validation Δ (50회 재분할)")
     mean = float(vals.mean())
     ax.plot([mean, mean], [-0.18, 0.18], color=INK, lw=1.6, zorder=4)
-    ax.annotate(f"K=50 평균 {mean:+.4f}", (mean, 0.22), ha="center", fontsize=8, color=INK2)
+    ax.annotate(f"50회 평균 {mean:+.4f}", (mean, 0.22), ha="center", fontsize=8, color=INK2)
     ax.scatter([float(winner["delta_sharpe"])], [0], s=70, facecolors="none",
-               edgecolors=BLUE, linewidths=1.8, zorder=5, label="승자 seed 26 (Validation)")
-    ax.annotate(f"승자 (Val) {float(winner['delta_sharpe']):+.4f}",
+               edgecolors=BLUE, linewidths=1.8, zorder=5, label="선정 모형 seed 26 (Validation)")
+    ax.annotate(f"선정 모형 (Validation) {float(winner['delta_sharpe']):+.4f}",
                 (float(winner["delta_sharpe"]), -0.28), ha="center", fontsize=8, color=INK2)
     ax.scatter([st_delta], [0], s=90, marker="D", color=BLUE, zorder=6,
-               edgecolors=SURFACE, linewidths=1.2, label="2nd Test (τ* 고정)")
-    ax.annotate(f"2nd Test {st_delta:+.4f}", (st_delta, 0.34), ha="center",
+               edgecolors=SURFACE, linewidths=1.2, label="외부 검증 표본 (τ* 고정)")
+    ax.annotate(f"외부 검증 표본 {st_delta:+.4f}", (st_delta, 0.34), ha="center",
                 fontsize=9, color=INK, fontweight="bold")
     ax.set_ylim(-0.55, 0.62)
     ax.set_yticks([])
@@ -210,7 +210,7 @@ def plot_generalization() -> Path:
     ax.grid(axis="y", visible=False)
     ax.legend(frameon=False, fontsize=8, loc="upper left", ncols=1,
               bbox_to_anchor=(0.0, 1.02))
-    ax.set_title("일반화: 2nd Test Δ가 K=50 Validation 분포 안에 든다")
+    ax.set_title("50회 반복의 Validation Δ Sharpe 분포와 외부 검증 표본 Δ Sharpe의 위치")
     _caption(fig, f"국채 재투자 · q_score · 8:2+OOF 3-fold · {ASSUMPTION_CAPTION}")
     fig.tight_layout()
     out = FIGURES / "fig_generalization_8_2_3fold.png"
@@ -240,13 +240,13 @@ def plot_cell_means() -> Path:
                         xytext=(6, 0), textcoords="offset points", va="center",
                         fontsize=8, color=INK2)
         ax.set_xticks(range(1, 11))
-        ax.set_xlabel("PD 분위 (보정 전 PD, term별 10분위)")
+        ax.set_xlabel("PD 분위 (보정 전 PD, 만기별 10분위)")
         ax.set_title(title)
         ax.grid(axis="x", visible=False)
     ax1.set_ylabel("수익률 (연율)")
-    fig.suptitle("구조 A′의 칸 구조 — 분위가 오를수록 부도 손실은 깊어지고 E[XR]는 얇아진다 (#20)",
+    fig.suptitle("PD 분위 × 만기 칸별 부도 칸 평균 수익률과 결합 기대 초과수익 E[XR]",
                  x=0.01, ha="left")
-    _caption(fig, "출처: 6:2:2 OOF 진단 산출물(oof_diagnostics.py, #20·#21 근거) — 8:2 본실행 산출물이 아님 · "
+    _caption(fig, "출처: 모형 진단 단계의 예비 분석 산출물 · 최종 분석과 분할 설정이 다르다 · "
                   + ASSUMPTION_CAPTION)
     fig.tight_layout(rect=(0, 0, 0.97, 0.99))
     out = FIGURES / "fig_cell_means_6_2_2_oof.png"
@@ -273,8 +273,8 @@ def plot_calibration_ece() -> Path:
     ax.set_xticklabels([name for _, name, _ in stages], color=INK2)
     ax.set_ylabel("ECE (%p) — Validation")
     ax.grid(axis="x", visible=False)
-    ax.set_title("isotonic 보정으로 Validation ECE 감소 (#21 ②)")
-    _caption(fig, "출처: 6:2:2 OOF 진단(진단 C-4) · E[XR]의 p̂만 보정 후 PD를 쓴다(역할 분리)")
+    ax.set_title("isotonic 보정 전과 후의 Validation 기대 보정 오차(ECE)")
+    _caption(fig, "출처: 모형 진단 단계의 예비 분석 산출물 · 최종 분석과 분할 설정이 다르다 · E[XR]의 p̂만 보정 후 PD를 쓴다(역할 분리)")
     fig.tight_layout()
     out = FIGURES / "fig_calibration_ece_6_2_2_oof.png"
     fig.savefig(out)

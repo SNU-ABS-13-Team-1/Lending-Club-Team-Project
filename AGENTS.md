@@ -177,6 +177,7 @@
 | **절대 Sharpe 0.2068 진단** (이슈 #33 — 하락분해: 조기상환 보정 효과·건전성 점검 5종·개선안 3계층) | `sharpe_level_diagnosis_kgj.md` |
 | **최종 결과 — 8:2 K=50·2nd Test** (이슈 #32 — **최종 수치 단일 원본**: Δ Sharpe +0.0893·승자 seed 26·그림 6종) | `final_result_kgj.md` |
 | **수업 제출용 최종 보고서** (7장 구성 + 부록 — 수치는 `final_result_kgj.md`에서 인용) | `final_report.md` |
+| **최종 보고서 v3** (`REPORT_CONVENTION.md` 규칙 8 적용판 — 8장 구성. 4장에 정의 사슬 집약, 6.3 벤치마크·오라클 신설. **현행 제출 원고**) | `final_report_v3.md` |
 | **부록 C 별책 — 전체 구현 코드** (`src/` 31개 파일 8,197줄 전문. **생성물이니 손으로 고치지 말 것** — `export_code_appendix.py`로 재생성, `--check`로 대조) | `final_report_code_appendix.md` |
 
 > 이슈 #23 문서 2건은 2026-07-31 회의에서 처리됐다 — A 부분 채택 · B 등가중 헤드라인 · C 기각(#22 ③·#23). **채택된 항목만 구현 근거로 쓴다.**
@@ -231,6 +232,7 @@
 | `src/analysis/realized_return_spec_check.py` | `decision_log.md` #20 · 이슈 #15 (탈락 캐스케이드·계산 가능 건수) | `outputs/realized_return_spec_check_cascade.csv`, `outputs/realized_return_spec_check_R_by_status_term.csv` |
 | `src/analysis/realized_return_sensitivity.py` | `decision_log.md` #18 (**재투자 가정 +107.5bp**) | `outputs/realized_return_sensitivity.csv` |
 | `src/analysis/excluded_audit.py` | `final_report.md` 6.1 · `decision_log.md` #24 ⑤ (계산 제외 건 감사 — train 1,210·2nd Test 836 전건 사유 집계) | `outputs/realized_return_excluded_audit.csv` |
+| `src/analysis/oracle_benchmarks.py` | `final_report_v3.md` 6.3 (**벤치마크·오라클 비교** — 전부 국채·전부 승인·모형·상태 Oracle·실현 XR>0 Oracle. 완전예지 오라클 1.4294 대 사후 최적 τ 0.2081은 **다른 개념**) | `outputs/oracle_benchmarks_8_2.csv` |
 | `src/analysis/hpr_realized_return.py` | `final_report.md` 4.1·6.4 (**참고논문 HPR 연율화 관례 대조** — 전수 723,563건) | `outputs/hpr_realized_return_summary.csv` (건별 `_full.csv`는 미추적) |
 | `src/analysis/auc_sample_filter_comparison.py` | `oof_diagnostics_kgj.md` (**AUC 0.71대 = #16 필터 이전 값**) | `outputs/auc_sample_filter_comparison.csv` |
 | `src/analysis/model_comparison.py` (`--only` 6블록) | `model_comparison_kgj.md` (**팀원 3인 스펙 비교·`zip_code` 근거**) | `outputs/model_comparison_*.csv` (8종) |

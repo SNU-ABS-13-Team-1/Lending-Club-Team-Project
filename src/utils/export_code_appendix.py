@@ -82,6 +82,7 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
         "analysis/realized_return_sensitivity.py",
         "analysis/hpr_realized_return.py",
         "analysis/excluded_audit.py",
+        "analysis/oracle_benchmarks.py",
     ]),
     ("시각화", "보고서 그림 6종. 산출 CSV만 읽고 재계산하지 않는다.", [
         "viz/plots.py",
