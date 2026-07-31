@@ -171,20 +171,17 @@ XR_정상,i = XR_계약,i + Δ̄_조기상환,d(i)      ← 이 보정항이 B�
 
 ## 5. 문서화 작업 (작업 0, 7~10)
 
-### 작업 0 (선행) — 팀원 로컬 문서 2종을 `main`에 올리기
+### 작업 0 (선행) — 팀원 로컬 문서 2종을 `main`에 올리기 — ✅ **완료**
 
-아직 팀원 로컬(`/Users/fame/...`)에만 있어 저장소에 없다.
+- ~~아직 팀원 로컬(`/Users/fame/...`)에만 있어 저장소에 없다.~~ → 두 파일 모두
+  `outputs/reports/`에 있다: `realized_return_treasury_reinvestment_methodology.md`,
+  `excess_return_sharpe_selection_methodology.md`.
 
-- `realized_return_treasury_reinvestment_methodology.md`
-- `excess_return_sharpe_selection_methodology.md`
+### 작업 7 — 색인 등재 — ✅ **완료**
 
-> 올릴 때 `docs/GIT_CONVENTION.md` 7절 파일명 규칙을 따른다. 같은 주제를 여러 명이 쓸 문서면
-> 이니셜 접미사를 붙이고(`_ymg` 등), 팀 단일 원본이면 붙이지 않는다.
-
-### 작업 7 — 색인 등재
-
-`AGENTS.md` 「자료 위치 색인」에 위 문서 2종과 결과 파일 위치를 한 줄씩 추가한다.
-`GS1M` 데이터를 수집하면 `data/processed/` 표에도 추가하고 `.source.md` 출처 카드를 함께 만든다.
+`AGENTS.md` 「자료 위치 색인」에 위 문서 2종 모두 한 줄씩 등재돼 있다("실현수익률 개정안"·
+"초과수익 선별 개정안" 행). `GS1M` 데이터도 `data/processed/` 표에 `us_treasury_GS1M_monthly_*.csv`로
+등재됐고 짝이 되는 `.source.md` 출처 카드도 있다.
 
 ### 작업 8 — `src/analysis/AGENTS.md`에 실행 규칙 추가 — ✅ **완료 (2026-07-31)**
 
@@ -207,16 +204,19 @@ XR_정상,i = XR_계약,i + Δ̄_조기상환,d(i)      ← 이 보정항이 B�
 실현수익률 경로가 흐름도에 반영됐다 — `A1 -.사후 컬럼.-> D2`(realized_return.py) → `D3`(threshold),
 진단 노드 `D5`(oof_diagnostics.py) 포함. 2절 흐름도의 `RET1`/`RET2`도 A′ 구조로 갱신됐다.
 
-### 작업 10 — Recovery 규칙과 `GS1M` 수집
+### 작업 10 — Recovery 규칙과 `GS1M` 수집 — 부분 완료
 
-- **Recovery 시점 `K+6`**: 부도 회수액을 최종납입 6개월 후에 수령한다고 보는 규칙.
-  현재 `realized_return_sensitivity.py:97`(`f_rec = G_T / g(mi0 + K + 6)`)과
-  `realized_return.py`의 `RECOVERY_LAG_MONTHS = 6`에 **코드로만** 있고,
-  **어느 문서에도 근거(왜 6개월인가)가 기록돼 있지 않다.** `decision_log.md` #4에 근거와 함께 남긴다.
-- **만기 초과 구간 `GS1M`**: `K > T`인 건(계약만기 후 납입)은 만기 이후 구간을 굴릴 금리가 필요하다.
-  `GS1M`(1개월물)을 쓰기로 한 규칙도 #4에 기록한다.
-- **`GS1M` 수집** — `docs/macro_indicators_spec.md` 규격에 맞춰 `data/processed/`에 저장 +
-  `.source.md` 출처 카드 작성. ⚠️ **수익률 계산용이며 모형 피처가 아니다** (거시지표 미사용, #15).
+- ~~**Recovery 시점 `K+6`**: … 어느 문서에도 근거(왜 6개월인가)가 기록돼 있지 않다.~~ →
+  **기록 완료 (2026-07-31, `decision_log.md` #4).** 다만 팀 논의나 외부 자료에 근거한 값이
+  아니라 초기 구현(`c18a40b`) 시점의 판단이었음이 확인됐다 — "근거 없음"으로 정직하게
+  기록하고, 유사 현금흐름 시점 가정의 실측(`realized_return_sensitivity.csv`, 27~49bp)으로
+  중요도 상한만 간접 추정했다. `K+6` 자체를 바꾼 재측정은 아직 하지 않았다(전수 원본 필요).
+- **만기 초과 구간 `GS1M`**: `K > T`인 건(계약만기 후 납입)은 만기 이후 구간을 굴릴 금리가
+  필요해 `GS1M`(1개월물)을 쓴다 — 이 역할 분리는 `decision_log.md` #22 ①의 국채 금리 3역할
+  표에 기록돼 있다(실현 현금흐름 재투자·역할인 = GS1M 실제경로). 이 항목은 이미 완료다.
+- **`GS1M` 수집** — ✅ **완료.** `data/processed/us_treasury_GS1M_monthly_2007-07_to_2025-09.csv`
+  + 짝이 되는 `.source.md` 출처 카드가 있고 `AGENTS.md` 색인에도 등재돼 있다.
+  ⚠️ **수익률 계산용이며 모형 피처가 아니다** (거시지표 미사용, #15).
 
 ---
 
